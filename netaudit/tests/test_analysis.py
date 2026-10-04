@@ -191,6 +191,24 @@ def test_tc_deltas_against_the_previous_run(lab, clock):
     assert finding.severity == "high"
 
 
+def test_short_window_reports_the_delta_but_no_rate(lab, clock):
+    """A re-audit minutes after a change must not extrapolate a few changes into thousands per day."""
+    from netaudit.analysis.checks import tc_rates
+    from netaudit.report import build_context
+
+    first = collect(lab)
+    clock.advance(120)
+    result = analyze(collect(lab), previous=first)
+    rates = tc_rates(result.topology, result.views[("lab", "VLAN0010")])
+    assert rates["delta"] == 1 and rates["window"] == 120
+    assert rates["current"] is None
+    context = build_context(result)
+    assert context["max_current"] is None
+    assert context["previous_run"] is not None
+    (finding,) = find(result, "topology-change", "acc-03", "originate")
+    assert "since the previous audit" not in finding.detail
+
+
 # -- policy edge cases ---------------------------------------------------------------------------------
 
 
