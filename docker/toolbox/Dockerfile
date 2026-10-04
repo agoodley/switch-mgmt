@@ -50,7 +50,6 @@ COPY ansible /work/ansible
 COPY lab /work/lab
 COPY docker/oxidized /work/docker/oxidized
 COPY librenms/config /work/librenms/config
-RUN chmod 600 /work/ansible/inventory-lab/credentials.yml
 
 # Works whatever uid the container runs as (compose passes the host user's
 # PUID/PGID so files in reports/ and backups/ belong to you).
