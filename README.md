@@ -133,7 +133,8 @@ passed; until then use a `sha-<commit>` tag through `TOOLBOX_IMAGE`.
    | `SNMP_COMMUNITY` (or `SNMP_VERSION=v3` and `SNMP_V3_*`) | SNMP for LibreNMS |
    | `MONITORING_HOST` | This host's address as the switches see it |
    | `TZ` | Time zone |
-   | `COMPOSE_PROFILES` | Optional: `lab` for the simulated switches, `https` for HTTPS in front of LibreNMS (then also `LIBRENMS_HTTPS_HOST`, `LIBRENMS_HTTPS_BIND=0.0.0.0`, `LIBRENMS_HTTP_BIND=127.0.0.1`), or `lab,https` |
+   | `COMPOSE_PROFILES` | Optional: `lab` for the simulated switches, `https` for HTTPS in front of LibreNMS (then also `LIBRENMS_HTTPS_HOST`, `LIBRENMS_HTTPS_PORT=443`, `LIBRENMS_HTTPS_BIND=0.0.0.0`, `LIBRENMS_HTTP_BIND=127.0.0.1`), or `lab,https` |
+   | `LIBRENMS_HTTP_PORT`, `SYSLOG_BIND`, `SNMPTRAP_BIND` | Only if 8000, 514 or 162 are already taken on the host |
 
 3. Deploy. The one-shot `init` container seeds the volumes and exits; LibreNMS
    is on port 8000 after a minute or two.
@@ -663,6 +664,12 @@ and `enable` are allowed. A warning that the file **can be read by other
 users** means it needs `chmod 600 ansible/inventory/credentials.yml`.
 
 **`make sync-librenms` says the token is missing or invalid.** Run `make librenms-token`.
+
+**Hosted deployment fails with `failed to bind host port ... address already in use`.**
+Something on the host already uses that port. Pick another one in the stack's
+environment: `LIBRENMS_HTTP_PORT` for 8000, `SYSLOG_BIND` / `SNMPTRAP_BIND` to
+bind 514 and 162 to one address, `OXIDIZED_PORT` for 8888. (Port 443 is only
+bound to a fixed number when you set `LIBRENMS_HTTPS_PORT` for the https profile.)
 
 **Hosted deployment: `pull access denied` / `denied` for `ghcr.io/agoodley/switch-mgmt-toolbox`.**
 The package is private. Make it public once on GitHub (*Packages* →

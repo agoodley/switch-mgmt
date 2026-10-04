@@ -23,7 +23,10 @@
 #   later     LIBRENMS_API_TOKEN (from `lnms api:token-create`, see the README)
 #   optional  COMPOSE_PROFILES=lab    also run the six simulated switches
 #             COMPOSE_PROFILES=https  HTTPS for LibreNMS: set LIBRENMS_HTTPS_HOST,
-#                                     LIBRENMS_HTTPS_BIND=0.0.0.0, LIBRENMS_HTTP_BIND=127.0.0.1
+#                                     LIBRENMS_HTTPS_PORT=443, LIBRENMS_HTTPS_BIND=0.0.0.0,
+#                                     LIBRENMS_HTTP_BIND=127.0.0.1
+# If a port is already taken on the host, change LIBRENMS_HTTP_PORT (8000),
+# SYSLOG_BIND / SNMPTRAP_BIND (514, 162) or OXIDIZED_PORT (8888).
 #             TOOLBOX_IMAGE           another image/tag than :latest
 #
 # On a public host, restrict port 8000 (plain HTTP) to your own addresses in
@@ -143,9 +146,11 @@ services:
     hostname: librenms
     ports:
       - "${LIBRENMS_HTTP_BIND:-0.0.0.0}:${LIBRENMS_HTTP_PORT:-8000}:8000"
-      # Used by the https profile (Caddy shares this container's network).
-      # Without it nothing listens here, and it stays on localhost.
-      - "${LIBRENMS_HTTPS_BIND:-127.0.0.1}:${LIBRENMS_HTTPS_PORT:-443}:443"
+      # Used by the https profile (Caddy shares this container's network):
+      # set LIBRENMS_HTTPS_PORT=443 and LIBRENMS_HTTPS_BIND=0.0.0.0 with it.
+      # Without a port, Docker picks a free one on localhost, so this can
+      # never clash with something already on 443 when HTTPS is not used.
+      - "${LIBRENMS_HTTPS_BIND:-127.0.0.1}:${LIBRENMS_HTTPS_PORT:-}:443"
     depends_on:
       init:
         condition: service_completed_successfully
