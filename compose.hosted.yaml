@@ -21,18 +21,22 @@
 #   required  LIBRENMS_DB_PASSWORD
 #   usual     NET_USERNAME, NET_PASSWORD, SNMP_COMMUNITY, MONITORING_HOST, TZ
 #   later     LIBRENMS_API_TOKEN (from `lnms api:token-create`, see the README)
-#   optional  COMPOSE_PROFILES=lab    also run the six simulated switches
-#             COMPOSE_PROFILES=https  HTTPS for LibreNMS: set LIBRENMS_HTTPS_HOST,
-#                                     LIBRENMS_HTTPS_PORT=443, LIBRENMS_HTTPS_BIND=0.0.0.0,
-#                                     LIBRENMS_HTTP_BIND=127.0.0.1
-# If a port is already taken on the host, change LIBRENMS_HTTP_PORT (8000),
-# SYSLOG_BIND / SNMPTRAP_BIND (514, 162) or OXIDIZED_PORT (8888).
-#             TOOLBOX_IMAGE           another image/tag than :latest
+#   required  LIBRENMS_HTTPS_HOST   the name or IP users browse to, e.g. 203.0.113.5
+#                                   or librenms.example.net (several: comma-separated);
+#                                   the certificate is issued for it
+#   optional  LIBRENMS_HTTPS_PORT   443 by default; set e.g. 8443 if 443 is taken
+#             COMPOSE_PROFILES=lab  also run the six simulated switches
+#             TOOLBOX_IMAGE         another image/tag than :latest
 #
-# On a public host, restrict port 8000 (plain HTTP) to your own addresses in
-# the provider's firewall, or use the https profile.  The switches must reach
-# this host on 514 and 162 (UDP), and it must reach them on 22 and 161:
-# normally through a VPN into each site.
+# LibreNMS is served over HTTPS only (https://<LIBRENMS_HTTPS_HOST>[:port]),
+# with a certificate from Caddy's own certificate authority: trust its root
+# certificate once in your browsers (see the README) or click through the
+# warning.  Plain HTTP stays on 127.0.0.1:8000 of the host, for SSH tunnels.
+# If a port is already taken on the host, change LIBRENMS_HTTPS_PORT (443),
+# LIBRENMS_HTTP_PORT (8000), SYSLOG_BIND / SNMPTRAP_BIND (514, 162) or
+# OXIDIZED_PORT (8888).  The switches must reach this host on 514 and 162
+# (UDP), and it must reach them on 22 and 161: normally through a VPN into
+# each site.
 
 name: switch-mgmt
 
@@ -51,9 +55,12 @@ x-librenms-env: &librenms-env
   MAX_INPUT_VARS: "1000"
   UPLOAD_MAX_SIZE: 16M
   OPCACHE_MEM_SIZE: "128"
-  REAL_IP_FROM: 0.0.0.0/32
+  # Caddy (the https service) shares this container's network and proxies
+  # from 127.0.0.1: take the real client address and the https scheme from it.
+  REAL_IP_FROM: 127.0.0.1/32
   REAL_IP_HEADER: X-Forwarded-For
   LOG_IP_VAR: remote_addr
+  APP_TRUSTED_PROXIES: 127.0.0.1
   CACHE_DRIVER: redis
   SESSION_DRIVER: redis
   REDIS_HOST: redis
@@ -145,12 +152,10 @@ services:
     <<: *librenms
     hostname: librenms
     ports:
-      - "${LIBRENMS_HTTP_BIND:-0.0.0.0}:${LIBRENMS_HTTP_PORT:-8000}:8000"
-      # Used by the https profile (Caddy shares this container's network):
-      # set LIBRENMS_HTTPS_PORT=443 and LIBRENMS_HTTPS_BIND=0.0.0.0 with it.
-      # Without a port, Docker picks a free one on localhost, so this can
-      # never clash with something already on 443 when HTTPS is not used.
-      - "${LIBRENMS_HTTPS_BIND:-127.0.0.1}:${LIBRENMS_HTTPS_PORT:-}:443"
+      # HTTPS, answered by the https service (it shares this network namespace).
+      - "${LIBRENMS_HTTPS_BIND:-0.0.0.0}:${LIBRENMS_HTTPS_PORT:-443}:443"
+      # Plain HTTP: this host only (SSH tunnel), unless LIBRENMS_HTTP_BIND says otherwise.
+      - "${LIBRENMS_HTTP_BIND:-127.0.0.1}:${LIBRENMS_HTTP_PORT:-8000}:8000"
     depends_on:
       init:
         condition: service_completed_successfully
@@ -210,28 +215,29 @@ services:
       <<: *librenms-env
       SIDECAR_SNMPTRAPD: "1"
 
-  # Optional HTTPS front end for LibreNMS (COMPOSE_PROFILES=https).  Caddy
-  # shares the LibreNMS container's network, reaches it on 127.0.0.1 (which
-  # LibreNMS trusts, so it builds https:// links) and answers on the 443
-  # published above.  Certificate from Caddy's own CA: trust
-  # /data/caddy/pki/authorities/local/root.crt from the caddy volume once.
+  # HTTPS front end for LibreNMS.  Caddy shares the LibreNMS container's
+  # network, so it reaches nginx on 127.0.0.1:8000 and answers on the 443
+  # published above.  The certificate comes from Caddy's own CA (`tls
+  # internal`) and is renewed automatically; its root certificate is
+  # /data/caddy/pki/authorities/local/root.crt in the caddy volume:
+  #   docker cp <project>-https-1:/data/caddy/pki/authorities/local/root.crt librenms-ca.crt
+  # The site address comes from LIBRENMS_HTTPS_HOST (Caddy reads it from
+  # its environment; `$$` keeps compose from expanding it here).
   https:
     image: caddy:${CADDY_VERSION:-2.10}
-    profiles: [https]
     network_mode: service:librenms
     depends_on: [librenms]
     command:
-      - caddy
-      - reverse-proxy
-      - --from
-      - https://${LIBRENMS_HTTPS_HOST:-localhost}
-      - --to
-      - 127.0.0.1:8000
-      - --internal-certs
+      - sh
+      - -c
+      - |
+        printf '%s\n' '{$$LIBRENMS_HTTPS_HOST} {' '  tls internal' '  reverse_proxy 127.0.0.1:8000' '}' > /tmp/Caddyfile
+        exec caddy run --config /tmp/Caddyfile --adapter caddyfile
     volumes:
       - caddy:/data
     environment:
       TZ: ${TZ:-UTC}
+      LIBRENMS_HTTPS_HOST: ${LIBRENMS_HTTPS_HOST:?set LIBRENMS_HTTPS_HOST to the name or IP users browse to (the certificate is issued for it)}
     restart: unless-stopped
 
   oxidized:
@@ -331,4 +337,4 @@ volumes:
   reports:            # audit reports
   backups:            # pre-change configuration backups
   lab:                # the simulated switches' SSH host key
-  caddy:              # certificates of the https profile
+  caddy:              # Caddy's CA and the LibreNMS certificate

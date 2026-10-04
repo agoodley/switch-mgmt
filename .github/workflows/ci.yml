@@ -58,7 +58,7 @@ jobs:
         run: |
           cp .env.example .env
           docker compose --profile tools --profile lab config --quiet
-          COMPOSE_PROFILES=lab,https docker compose -f compose.hosted.yaml config --quiet
+          COMPOSE_PROFILES=lab LIBRENMS_HTTPS_HOST=ci.example docker compose -f compose.hosted.yaml config --quiet
 
   lab-e2e:
     name: End-to-end against the simulated lab
@@ -115,6 +115,7 @@ jobs:
           TOOLBOX_IMAGE: switch-mgmt-toolbox:local
           COMPOSE_PROFILES: lab
           LIBRENMS_DB_PASSWORD: not-started-in-this-test
+          LIBRENMS_HTTPS_HOST: not-started-in-this-test
         run: |
           set -eu
           hosted="docker compose -p switch-mgmt-hosted -f compose.hosted.yaml"

@@ -102,9 +102,10 @@ https://raw.githubusercontent.com/agoodley/switch-mgmt/main/compose.hosted.yaml
 
 `compose.hosted.yaml` pulls the toolbox image that CI publishes
 (`ghcr.io/agoodley/switch-mgmt-toolbox:latest`) instead of building it, keeps
-all state in named Docker volumes instead of `./data`, and runs the toolbox
-permanently so you can execute commands in it. Everything else (LibreNMS,
-Oxidized, the audit, the plan, the rollout, the lab) is identical.
+all state in named Docker volumes instead of `./data`, serves LibreNMS over
+HTTPS only, and runs the toolbox permanently so you can execute commands in
+it. Everything else (LibreNMS, Oxidized, the audit, the plan, the rollout,
+the lab) is identical.
 
 **If this repository is private**, the panel cannot fetch that URL (it
 returns 404 without a login). Choose *Compose manually* instead and paste the
@@ -132,12 +133,24 @@ passed; until then use a `sha-<commit>` tag through `TOOLBOX_IMAGE`.
    | `NET_USERNAME`, `NET_PASSWORD`, `NET_ENABLE_SECRET` | Default switch login |
    | `SNMP_COMMUNITY` (or `SNMP_VERSION=v3` and `SNMP_V3_*`) | SNMP for LibreNMS |
    | `MONITORING_HOST` | This host's address as the switches see it |
+   | `LIBRENMS_HTTPS_HOST` | Required. The name or IP you will browse to (`203.0.113.5`, `librenms.example.net`; several: comma-separated). The certificate is issued for it |
+   | `LIBRENMS_HTTPS_PORT` | `443` by default; e.g. `8443` if the host already uses 443 |
    | `TZ` | Time zone |
-   | `COMPOSE_PROFILES` | Optional: `lab` for the simulated switches, `https` for HTTPS in front of LibreNMS (then also `LIBRENMS_HTTPS_HOST`, `LIBRENMS_HTTPS_PORT=443`, `LIBRENMS_HTTPS_BIND=0.0.0.0`, `LIBRENMS_HTTP_BIND=127.0.0.1`), or `lab,https` |
+   | `COMPOSE_PROFILES` | Optional: `lab` for the simulated switches |
    | `LIBRENMS_HTTP_PORT`, `SYSLOG_BIND`, `SNMPTRAP_BIND` | Only if 8000, 514 or 162 are already taken on the host |
 
 3. Deploy. The one-shot `init` container seeds the volumes and exits; LibreNMS
-   is on port 8000 after a minute or two.
+   is on `https://<LIBRENMS_HTTPS_HOST>` (plus `:<port>` if you changed it)
+   after a minute or two. **HTTPS only:** the certificate comes from Caddy's
+   own certificate authority, so browsers warn until you trust its root
+   certificate once (import it, or distribute it by group policy):
+
+   ```bash
+   docker cp switch-mgmt-https-1:/data/caddy/pki/authorities/local/root.crt librenms-ca.crt
+   ```
+
+   Plain HTTP is not exposed; it only listens on the host's `127.0.0.1:8000`,
+   reachable through an SSH tunnel (`ssh -L 8000:127.0.0.1:8000 <host>`).
 4. Create the LibreNMS admin and an API token (the panel's container terminal
    on `librenms`, or SSH to the host):
 
@@ -197,9 +210,10 @@ The stack's environment variables hold the passwords; keep a copy of them too.
 LibreNMS and Oxidized are pinned in the file and overridable with
 `LIBRENMS_VERSION` / `OXIDIZED_VERSION`, as in `.env`.
 
-**On a public VPS:** port 8000 is plain HTTP. Restrict it to your addresses in
-the provider's firewall (Docker's published ports bypass `ufw`), or use the
-`https` profile. The switches' management networks are normally private, so
+**On a public VPS:** LibreNMS answers on HTTPS only, but it is still a login
+page on the internet: restrict its port to your addresses in the provider's
+firewall (Docker's published ports bypass `ufw`). The switches' management
+networks are normally private, so
 the host needs a VPN into each site (WireGuard to the site firewall, Tailscale
 with a subnet router...): SSH and SNMP towards the switches, syslog and traps
 back, all through the tunnel. `MONITORING_HOST` is then the host's tunnel
@@ -668,8 +682,8 @@ users** means it needs `chmod 600 ansible/inventory/credentials.yml`.
 **Hosted deployment fails with `failed to bind host port ... address already in use`.**
 Something on the host already uses that port. Pick another one in the stack's
 environment: `LIBRENMS_HTTP_PORT` for 8000, `SYSLOG_BIND` / `SNMPTRAP_BIND` to
-bind 514 and 162 to one address, `OXIDIZED_PORT` for 8888. (Port 443 is only
-bound to a fixed number when you set `LIBRENMS_HTTPS_PORT` for the https profile.)
+bind 514 and 162 to one address, `OXIDIZED_PORT` for 8888, `LIBRENMS_HTTPS_PORT`
+for 443 (for example `8443`; then browse to `https://<host>:8443`).
 
 **Hosted deployment: `pull access denied` / `denied` for `ghcr.io/agoodley/switch-mgmt-toolbox`.**
 The package is private. Make it public once on GitHub (*Packages* →
