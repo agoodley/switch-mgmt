@@ -35,16 +35,17 @@ flowchart LR
 ## Contents
 
 1. [Quick start](#quick-start)
-2. [Try it on the lab first](#try-it-on-the-lab-first)
-3. [Your first site: 50 switches with spanning-tree problems](#your-first-site-50-switches-with-spanning-tree-problems)
-4. [Day-to-day commands](#day-to-day-commands)
-5. [Several sites](#several-sites)
-6. [Switch logins and security](#switch-logins-and-security)
-7. [How changes are kept safe](#how-changes-are-kept-safe)
-8. [Settings](#settings)
-9. [Moving, backing up and upgrading](#moving-backing-up-and-upgrading)
-10. [Troubleshooting](#troubleshooting)
-11. [Repository layout and development](#repository-layout-and-development)
+2. [Deploy from a URL (Hostinger Docker Manager, Portainer...)](#deploy-from-a-url-hostinger-docker-manager-portainer)
+3. [Try it on the lab first](#try-it-on-the-lab-first)
+4. [Your first site: 50 switches with spanning-tree problems](#your-first-site-50-switches-with-spanning-tree-problems)
+5. [Day-to-day commands](#day-to-day-commands)
+6. [Several sites](#several-sites)
+7. [Switch logins and security](#switch-logins-and-security)
+8. [How changes are kept safe](#how-changes-are-kept-safe)
+9. [Settings](#settings)
+10. [Moving, backing up and upgrading](#moving-backing-up-and-upgrading)
+11. [Troubleshooting](#troubleshooting)
+12. [Repository layout and development](#repository-layout-and-development)
 
 The spanning-tree background (what each finding means and how to fix it by
 hand) is in [docs/stp-runbook.md](docs/stp-runbook.md).
@@ -84,6 +85,115 @@ The settings that matter in `.env`:
 
 `.env` is git-ignored. Keep it out of version control and readable only by you
 (`make init` sets mode 600).
+
+No checkout on the Docker host, or a VPS managed through a control panel? See
+[Deploy from a URL](#deploy-from-a-url-hostinger-docker-manager-portainer).
+
+---
+
+## Deploy from a URL (Hostinger Docker Manager, Portainer...)
+
+The same stack can run from a single compose file with nothing checked out,
+the way Docker control panels deploy things:
+
+```
+https://raw.githubusercontent.com/agoodley/switch-mgmt/main/compose.hosted.yaml
+```
+
+`compose.hosted.yaml` pulls the toolbox image that CI publishes
+(`ghcr.io/agoodley/switch-mgmt-toolbox:latest`) instead of building it, keeps
+all state in named Docker volumes instead of `./data`, and runs the toolbox
+permanently so you can execute commands in it. Everything else (LibreNMS,
+Oxidized, the audit, the plan, the rollout, the lab) is identical.
+
+**Before the first deployment**, the image must be pullable without a login:
+on GitHub open the repository's *Packages* → `switch-mgmt-toolbox` → *Package
+settings* → *Change visibility* → *Public* (a one-time step; alternatively run
+`docker login ghcr.io` on the host).
+
+### In the panel
+
+1. *Docker Manager* → *Compose* → *Compose from URL*, paste the URL above, name
+   the project (the examples below use `switch-mgmt`).
+2. Add the environment variables. They are the ones from `.env.example`:
+
+   | Variable | What |
+   | --- | --- |
+   | `LIBRENMS_DB_PASSWORD` | Required. Any long random string |
+   | `NET_USERNAME`, `NET_PASSWORD`, `NET_ENABLE_SECRET` | Default switch login |
+   | `SNMP_COMMUNITY` (or `SNMP_VERSION=v3` and `SNMP_V3_*`) | SNMP for LibreNMS |
+   | `MONITORING_HOST` | This host's address as the switches see it |
+   | `TZ` | Time zone |
+   | `COMPOSE_PROFILES` | Optional: `lab` for the simulated switches, `https` for HTTPS in front of LibreNMS (then also `LIBRENMS_HTTPS_HOST`, `LIBRENMS_HTTPS_BIND=0.0.0.0`, `LIBRENMS_HTTP_BIND=127.0.0.1`), or `lab,https` |
+
+3. Deploy. The one-shot `init` container seeds the volumes and exits; LibreNMS
+   is on port 8000 after a minute or two.
+4. Create the LibreNMS admin and an API token (the panel's container terminal
+   on `librenms`, or SSH to the host):
+
+   ```bash
+   docker exec -it switch-mgmt-librenms-1 lnms user:add --role=admin admin
+   docker exec -it switch-mgmt-librenms-1 lnms api:token-create admin --name switch-mgmt
+   ```
+
+   Put the token in the stack's environment as `LIBRENMS_API_TOKEN` and
+   redeploy, so `switch-mgmt sync` can use it.
+
+### Running commands
+
+Open the container terminal of `toolbox` in the panel, or
+`docker exec -it switch-mgmt-toolbox-1 bash`. Inside, `switch-mgmt` replaces
+`make`, with the same commands and variables as everywhere in this README;
+on its own it lists them:
+
+```bash
+switch-mgmt discover SITE=hq SEED=10.10.0.1
+nano ansible/inventory/sites/hq.yml          # set stp_role on the two roots
+switch-mgmt monitoring SITE=hq CHECK=1
+switch-mgmt sync
+switch-mgmt audit SITE=hq
+switch-mgmt plan SITE=hq
+switch-mgmt apply SITE=hq
+```
+
+They can also be run directly from the host: `docker exec -it
+switch-mgmt-toolbox-1 switch-mgmt audit SITE=hq`. Commands that start or stop
+containers (`up`, `down`, `build`, `lab-up`, `lab-reset`...) belong to the
+panel and say so.
+
+* **Per-switch logins:** `nano ansible/inventory/credentials.yml` inside the
+  toolbox, or copy a spreadsheet export in and import it:
+  `docker cp passwords.csv switch-mgmt-toolbox-1:/tmp/` then
+  `switch-mgmt credentials-import CSV=/tmp/passwords.csv`.
+* **Reports:** `switch-mgmt report` prints where the latest one is. To open
+  it on your computer: `docker cp -L switch-mgmt-toolbox-1:/work/reports/latest ./report`
+  and open `report/report.html`. `report.md` is readable in the terminal.
+* **The lab:** with `COMPOSE_PROFILES=lab`, `switch-mgmt lab-audit`,
+  `lab-plan` and `lab-apply` work as described below. Restarting the `lab`
+  container resets it to its broken starting point.
+
+### Where the data is
+
+Named volumes, prefixed with the project name (`switch-mgmt_inventory`,
+`switch-mgmt_librenms`, ...): `db` and `librenms` (LibreNMS), `oxidized`
+(config history), `oxidized-conf` (device list with logins), `ssh` (the
+switches' host keys), `inventory`, `reports`, `backups`. Back them up like any
+Docker volume, for example
+`docker run --rm -v switch-mgmt_inventory:/v -v "$PWD":/out alpine tar czf /out/inventory.tgz -C /v .`.
+The stack's environment variables hold the passwords; keep a copy of them too.
+
+**Updating:** CI publishes a new `latest` image on every change; redeploy
+(or *pull and recreate*) in the panel to pick it up. Image versions of
+LibreNMS and Oxidized are pinned in the file and overridable with
+`LIBRENMS_VERSION` / `OXIDIZED_VERSION`, as in `.env`.
+
+**On a public VPS:** port 8000 is plain HTTP. Restrict it to your addresses in
+the provider's firewall (Docker's published ports bypass `ufw`), or use the
+`https` profile. The switches' management networks are normally private, so
+the host needs a VPN into each site (WireGuard to the site firewall, Tailscale
+with a subnet router...): SSH and SNMP towards the switches, syslog and traps
+back, all through the tunnel. `MONITORING_HOST` is then the host's tunnel
+address. Never expose switch SSH to the internet.
 
 ---
 
@@ -545,6 +655,11 @@ users** means it needs `chmod 600 ansible/inventory/credentials.yml`.
 
 **`make sync-librenms` says the token is missing or invalid.** Run `make librenms-token`.
 
+**Hosted deployment: `pull access denied` / `denied` for `ghcr.io/agoodley/switch-mgmt-toolbox`.**
+The package is private. Make it public once on GitHub (*Packages* →
+`switch-mgmt-toolbox` → *Package settings* → *Change visibility*), or
+`docker login ghcr.io` on the host with a token that can read packages.
+
 **Building the toolbox fails with certificate errors behind a corporate proxy.**
 Set `EXTRA_CA_CERT=/path/to/proxy-ca.pem` in `.env` and run `make build`.
 
@@ -558,6 +673,7 @@ transport (*Alerts → Alert Transports*).
 ```
 compose.yaml              LibreNMS (+ dispatcher, syslog-ng, snmptrapd), MariaDB, Redis, Oxidized, toolbox, lab
 compose.https.yaml        optional HTTPS front end for LibreNMS
+compose.hosted.yaml       the same stack deployable from a URL (published toolbox image, named volumes)
 Makefile                  every command (run `make`)
 .env.example              settings template (copied to .env by `make init`)
 ansible/
@@ -571,7 +687,8 @@ ansible/
   vars_plugins/           applies credentials.yml (+ tests in ansible/tests/)
 netaudit/                 Python package: IOS parsers, STP analysis, planner, report,
                           CDP discovery, lab simulator (+ tests)
-docker/                   toolbox Dockerfile, Oxidized config template
+docker/                   toolbox Dockerfile and in-container commands (switch-mgmt, switch-mgmt-init),
+                          Oxidized config template
 librenms/config/          LibreNMS settings seeded on first start
 lab/topology.yml          the simulated network
 docs/stp-runbook.md       spanning-tree findings explained, manual fixes
@@ -587,7 +704,10 @@ yamllint . && (cd ansible && ansible-lint)
 
 CI (`.github/workflows/ci.yml`, on every push) runs the linters and unit tests, then builds
 the toolbox and runs the whole audit → plan → apply → audit cycle against the
-lab.
+lab, twice: with `compose.yaml` and inside the toolbox container of
+`compose.hosted.yaml`. When that passes it publishes the toolbox image to
+GitHub Container Registry (`latest` from `main` and the default branch, plus
+the branch name and `sha-<commit>` tags).
 
 Everything has been tested against the simulated lab and real IOS output
 formats, not against your hardware. Run the read-only audit first, then

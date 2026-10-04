@@ -6,6 +6,15 @@
 #   INVENTORY=...     inventory directory inside ansible/ (default: inventory;
 #                     inventory-lab for the simulated switches)
 #   ARGS=...          extra ansible-playbook options, e.g. ARGS=--ask-vault-pass
+#
+# The same Makefile works in two places:
+#   * on the Docker host of a checkout (compose.yaml): the switch commands run
+#     in the toolbox container through `docker compose`;
+#   * inside the toolbox container of a hosted deployment (compose.hosted.yaml,
+#     deployed from a URL): the tools run directly, as
+#       docker exec -it <project>-toolbox-1 switch-mgmt audit SITE=hq
+#     (`switch-mgmt` is `make` in /work).  Commands that start or stop
+#     containers belong to the host or the hosting panel and say so there.
 
 SHELL := /bin/sh
 COMPOSE ?= docker compose
@@ -14,8 +23,17 @@ SITE ?=
 CHECK ?=
 LIMIT := $(if $(SITE),--limit '$(SITE)',)
 CHECKFLAG := $(if $(filter 1 yes true,$(CHECK)),--check,)
+ifdef SWITCH_MGMT_IN_TOOLBOX
+RUN := cd ansible &&
+RUN_WORK :=
+RUN_SHOW := cd ansible && SHOW_CMD="$(CMD)"
+COMPOSE = $(error "make $@" manages containers: run it on the Docker host or in the hosting panel, not inside the toolbox)
+else
 # DC_RUN_FLAGS=-T disables the TTY (CI, cron).
 RUN := $(COMPOSE) run --rm $(DC_RUN_FLAGS) ansible
+RUN_WORK := $(COMPOSE) run --rm $(DC_RUN_FLAGS) -w /work ansible
+RUN_SHOW := $(COMPOSE) run --rm $(DC_RUN_FLAGS) -e SHOW_CMD="$(CMD)" ansible
+endif
 PLAYBOOK := $(RUN) ansible-playbook -i $(INVENTORY) $(ARGS)
 
 .DEFAULT_GOAL := help
@@ -32,6 +50,9 @@ help: ## Show this help
 
 ## Setup
 init: ## First run: create .env (random DB password) and the data directories
+ifdef SWITCH_MGMT_IN_TOOLBOX
+	@echo "Hosted deployment: nothing to initialise here; settings are the stack's environment variables."
+else
 	@if [ ! -f .env ]; then \
 	  sed -e "s/^PUID=.*/PUID=$$(id -u)/" -e "s/^PGID=.*/PGID=$$(id -g)/" \
 	      -e "s/^LIBRENMS_DB_PASSWORD=.*/LIBRENMS_DB_PASSWORD=$$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')/" \
@@ -43,6 +64,7 @@ init: ## First run: create .env (random DB password) and the data directories
 	@chmod 600 ansible/inventory-lab/credentials.yml
 	@[ ! -f ansible/inventory/credentials.yml ] || chmod 600 ansible/inventory/credentials.yml
 	@chmod +x scripts/*.sh docker/oxidized/start.sh
+endif
 
 build: ## Build the Ansible/netaudit toolbox image
 	$(COMPOSE) build ansible
@@ -81,7 +103,7 @@ discover: ## Build ansible/inventory/sites/SITE.yml from CDP: make discover SITE
 
 credentials-import: ## Add per-switch logins from a spreadsheet: make credentials-import CSV=passwords.csv
 	@[ -n "$(CSV)" ] && [ -f "$(CSV)" ] || { echo "usage: make credentials-import CSV=passwords.csv (a file in this directory)"; exit 2; }
-	$(COMPOSE) run --rm $(DC_RUN_FLAGS) -w /work ansible netaudit credentials-import $(CSV) --file ansible/inventory/credentials.yml
+	$(RUN_WORK) netaudit credentials-import $(CSV) --file ansible/inventory/credentials.yml
 
 forget-host: ## Accept a replaced switch's new SSH key: make forget-host HOST=10.10.0.7 [PORT=22]
 	@[ -n "$(HOST)" ] || { echo "usage: make forget-host HOST=<address the switch is reached at> [PORT=22]"; exit 2; }
@@ -112,7 +134,7 @@ report: ## Print where the latest report is
 ## Any switch work
 show: ## Run a show command everywhere: make show CMD="show spanning-tree root" SITE=hq
 	@[ -n "$(CMD)" ] || { echo 'usage: make show CMD="show ..." [SITE=hq]'; exit 2; }
-	$(COMPOSE) run --rm $(DC_RUN_FLAGS) -e SHOW_CMD="$(CMD)" ansible ansible-playbook -i $(INVENTORY) playbooks/show.yml $(LIMIT)
+	$(RUN_SHOW) ansible-playbook -i $(INVENTORY) playbooks/show.yml $(LIMIT)
 
 deploy: ## Push a config snippet: make deploy SNIPPET=snippets/x.cfg.j2 SITE=hq [CHECK=1]
 	@[ -n "$(SNIPPET)" ] || { echo "usage: make deploy SNIPPET=snippets/<file> [SITE=hq] [CHECK=1]"; exit 2; }
@@ -148,5 +170,4 @@ shell: ## Shell in the toolbox container
 	$(RUN) bash
 
 test: ## Run the unit tests (netaudit + Ansible plugin) against the checked-out code, in the toolbox
-	$(COMPOSE) run --rm $(DC_RUN_FLAGS) -w /work -e PYTHONPATH=/work/netaudit/src ansible \
-	  pytest -q -p no:cacheprovider netaudit/tests ansible/tests
+	$(RUN_WORK) env PYTHONPATH=/work/netaudit/src pytest -q -p no:cacheprovider netaudit/tests ansible/tests
