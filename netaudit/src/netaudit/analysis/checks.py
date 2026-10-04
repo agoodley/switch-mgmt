@@ -343,8 +343,17 @@ def check_roots(topology: Topology, policies: dict[str, dict[str, Any]]) -> list
 
 
 # ---------------------------------------------------------------------------
+MIN_WINDOW = 1800  # seconds between audits before the measured rate is trusted
+
+
 def tc_rates(topology: Topology, view: VlanView) -> dict[str, Any]:
-    """Lifetime and (when a previous audit exists) current topology-change rates for a VLAN."""
+    """Lifetime and (when a previous audit exists) current topology-change rates for a VLAN.
+
+    ``delta`` and ``window`` are reported whenever a previous run is comparable;
+    ``current`` (changes per day) only once the window is at least
+    :data:`MIN_WINDOW`, because a handful of changes right after a config push
+    extrapolates to thousands per day.
+    """
     lifetime, counts, measured = [], [], []
     for state in view.switches.values():
         device = topology.devices[state.host]
@@ -362,11 +371,8 @@ def tc_rates(topology: Topology, view: VlanView) -> dict[str, Any]:
         "count": max(counts) if counts else None,
         "delta": delta,
         "window": window,
-        "current": (delta / window * 86400) if delta is not None and window else None,
+        "current": (delta / window * 86400) if delta is not None and window and window >= MIN_WINDOW else None,
     }
-
-
-MIN_WINDOW = 1800  # seconds between audits before the measured rate is trusted
 
 
 def check_topology_changes(
@@ -385,8 +391,8 @@ def check_topology_changes(
         last = trace.last_seconds
         edge = next((e for e in edge_map.get(trace.origin_host or "", []) if e.port == trace.origin_port), None)
         flapping_edge = trace.origin_kind == "access-port" and (edge is None or not edge.portfast_ok)
-        if rates["current"] is not None and rates["window"] >= MIN_WINDOW:
-            # Measured since the previous audit: the most reliable signal.
+        if rates["current"] is not None:
+            # Measured since the previous audit (window >= MIN_WINDOW): the most reliable signal.
             current = rates["current"]
             severity = "high" if current >= high else "medium" if current >= warn else "low" if rates["delta"] else None
         elif last is not None and last <= 3600 and flapping_edge and rates["lifetime"] >= warn:
