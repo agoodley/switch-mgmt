@@ -91,7 +91,10 @@ class VarsModule(BaseVarsPlugin):
         cached = _CACHE.get(source)
         if cached and cached[0] == mtime:
             return cached[1]
-        if os.stat(source).st_mode & (stat.S_IRWXG | stat.S_IRWXO) and source not in _WARNED:
+        info = os.stat(source)
+        # Only for a file of ours: one provided read-only by the toolbox image
+        # (the lab's, root-owned) is not something the user could chmod.
+        if info.st_mode & (stat.S_IRWXG | stat.S_IRWXO) and info.st_uid == os.getuid() and source not in _WARNED:
             _WARNED.add(source)
             self._display.warning(f"{source} can be read by other users; run: chmod 600 {source}")
         try:

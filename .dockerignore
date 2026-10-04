@@ -1,4 +1,5 @@
 .git
+.github
 data
 reports
 backups
@@ -10,3 +11,10 @@ backups
 netaudit/build
 lab/.lab_host_key
 oxidized/router.json
+# Your switches and their logins never belong in an image (the image is
+# published; in the checkout-based stack the repository is mounted over it).
+ansible/inventory/credentials.yml
+ansible/inventory/credentials.yml.tmp
+ansible/inventory/sites/*.yml
+ansible/inventory/host_vars/*.yml
+*.csv
