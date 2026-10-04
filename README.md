@@ -125,7 +125,10 @@ passed; until then use a `sha-<commit>` tag through `TOOLBOX_IMAGE`.
 1. *Docker Manager* → *Compose* → *Compose from URL*, paste the URL above (or
    *Compose manually* and paste the file), and name the project (the examples
    below use `switch-mgmt`).
-2. Add the environment variables. They are the ones from `.env.example`:
+2. Add the environment variables. They are the ones from `.env.example`.
+   Some panels (Hostinger's among them) pre-fill the form from that file:
+   delete rows whose name starts with `#`, and replace every `change-me`
+   placeholder with a real value before deploying.
 
    | Variable | What |
    | --- | --- |
