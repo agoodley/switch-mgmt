@@ -127,6 +127,9 @@ services:
     command: ["runsvdir", "-P", "/etc/service"]
     environment:
       TZ: ${TZ:-UTC}
+      # Oxidized runs as this user, so it can read router.json and known_hosts.
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
       NET_USERNAME: ${NET_USERNAME:-}
       NET_PASSWORD: ${NET_PASSWORD:-}
       NET_ENABLE_SECRET: ${NET_ENABLE_SECRET:-}
@@ -135,6 +138,8 @@ services:
       - ./data/oxidized:/home/oxidized/.config/oxidized
       - ./oxidized:/etc/switch-mgmt:ro
       - ./docker/oxidized:/opt/switch-mgmt:ro
+      # SSH host keys recorded by the toolbox; Oxidized only reads them.
+      - ./data/ssh:/etc/switch-mgmt-ssh:ro
     # The Oxidized web UI has no login: it stays on localhost unless you say otherwise.
     ports:
       - "${OXIDIZED_BIND:-127.0.0.1}:${OXIDIZED_PORT:-8888}:8888"
@@ -170,6 +175,8 @@ services:
       LAB_HOST: lab
     volumes:
       - .:/work
+      # SSH host keys of the switches (trust on first use), kept between runs.
+      - ./data/ssh:/home/netops/.ssh
 
   # Simulated switches (lab/topology.yml) on ports 2201-2206.
   lab:

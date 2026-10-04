@@ -1,6 +1,7 @@
 ---
 # Run the audit commands on one switch and write everything the analyser
 # needs to <run dir>/raw/<switch>.json.  Read-only: nothing is changed.
+# Passwords, keys and SNMP communities are removed before anything is written.
 
 - name: Run audit commands
   cisco.ios.ios_command:
@@ -19,7 +20,7 @@
   ansible.builtin.copy:
     dest: "{{ audit_run_dir }}/raw/{{ inventory_hostname }}.json"
     content: "{{ netaudit_payload | to_nice_json(indent=1) }}"
-    mode: "0644"
+    mode: "0600"
   delegate_to: localhost
   check_mode: false
   vars:
@@ -34,7 +35,8 @@
         {{ dict(netaudit_intent_keys | zip(netaudit_values))
            | dict2items | rejectattr('value', 'equalto', '__undefined__') | items2dict }}
       outputs: >-
-        {{ dict(netaudit_ok | map(attribute='item') | zip(netaudit_ok | map(attribute='stdout') | map('first'))) }}
+        {{ dict(netaudit_ok | map(attribute='item')
+                | zip(netaudit_ok | map(attribute='stdout') | map('first') | map('ios_remove_secrets'))) }}
       errors: >-
         {{ dict(netaudit_failed | map(attribute='item')
                 | zip(netaudit_failed | map(attribute='msg', default='no output'))) }}

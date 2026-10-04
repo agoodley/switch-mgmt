@@ -1,7 +1,8 @@
 ---
 # Rendered into /home/oxidized/.config/oxidized/config by start.sh each time
-# the container starts.  Credentials come from .env; the device list comes
-# from oxidized/router.json (written by `make sync-oxidized`).
+# the container starts.  The device list, with each switch's login, comes from
+# oxidized/router.json (written by `make sync-oxidized`); the login below from
+# .env is only the fallback.
 username: <%= ENV.fetch("NET_USERNAME", "").to_json %>
 password: <%= ENV.fetch("NET_PASSWORD", "").to_json %>
 model: ios
@@ -35,7 +36,8 @@ input:
   default: ssh
   debug: false
   ssh:
-    secure: false
+    # Host keys must match data/ssh/known_hosts (recorded by `make sync`).
+    secure: true
 output:
   default: git
   git:
@@ -52,8 +54,11 @@ source:
       ip: ip
       model: model
       group: group
+      username: username
+      password: password
     vars_map:
       ssh_port: ssh_port
+      enable: enable
 model_map:
   cisco: ios
 logger:

@@ -39,11 +39,12 @@ flowchart LR
 3. [Your first site: 50 switches with spanning-tree problems](#your-first-site-50-switches-with-spanning-tree-problems)
 4. [Day-to-day commands](#day-to-day-commands)
 5. [Several sites](#several-sites)
-6. [How changes are kept safe](#how-changes-are-kept-safe)
-7. [Settings](#settings)
-8. [Moving, backing up and upgrading](#moving-backing-up-and-upgrading)
-9. [Troubleshooting](#troubleshooting)
-10. [Repository layout and development](#repository-layout-and-development)
+6. [Switch logins and security](#switch-logins-and-security)
+7. [How changes are kept safe](#how-changes-are-kept-safe)
+8. [Settings](#settings)
+9. [Moving, backing up and upgrading](#moving-backing-up-and-upgrading)
+10. [Troubleshooting](#troubleshooting)
+11. [Repository layout and development](#repository-layout-and-development)
 
 The spanning-tree background (what each finding means and how to fix it by
 hand) is in [docs/stp-runbook.md](docs/stp-runbook.md).
@@ -74,7 +75,7 @@ The settings that matter in `.env`:
 
 | Variable | What it is |
 | --- | --- |
-| `NET_USERNAME`, `NET_PASSWORD` | SSH login used by Ansible, discovery and Oxidized |
+| `NET_USERNAME`, `NET_PASSWORD` | Default SSH login for Ansible, discovery and Oxidized. Switches with other logins: see [Switch logins](#switch-logins-and-security) |
 | `NET_ENABLE_SECRET` | Only if the account lands at `>`; leave empty for privilege-15/TACACS accounts |
 | `SNMP_VERSION`, `SNMP_COMMUNITY` (or `SNMP_V3_*`) | What the switches get configured with and LibreNMS polls with |
 | `MONITORING_HOST` | IP of this host as the switches see it: syslog and traps are sent there |
@@ -101,7 +102,9 @@ problems a network that grew without an STP design usually has:
   of topology changes;
 * an unmanaged switch running STP behind a user port;
 * a native-VLAN mismatch on a daisy-chained trunk, MAC flapping, and a port
-  shut down by BPDU Guard.
+  shut down by BPDU Guard;
+* one switch (acc-04) with a login of its own, set in
+  `ansible/inventory-lab/credentials.yml`.
 
 ```bash
 make lab-up          # builds the toolbox if needed, starts the lab
@@ -123,7 +126,16 @@ they are added as ping-only devices.
 
 ## Your first site: 50 switches with spanning-tree problems
 
-### 1. Build the inventory
+### 1. Logins
+
+If every switch accepts the account in `.env`, there is nothing to do. If the
+passwords differ from switch to switch, list them in
+`ansible/inventory/credentials.yml` first, by switch name or management
+address. From a spreadsheet export it is one command:
+`make credentials-import CSV=passwords.csv`. See
+[Switch logins and security](#switch-logins-and-security).
+
+### 2. Build the inventory
 
 Let CDP find the switches, starting from one (or two) you know:
 
@@ -132,9 +144,9 @@ make discover SITE=hq SEED=10.10.0.1            # writes ansible/inventory/sites
 make discover SITE=hq SEED=10.10.0.1 SEED2=10.10.0.2
 ```
 
-The crawler logs in with `NET_USERNAME`/`NET_PASSWORD` and follows every CDP
-neighbour that is a switch. Phones and access points are skipped. Read the
-generated file:
+The crawler logs in with the login from `.env`, or the switch's own entry in
+`credentials.yml`, and follows every CDP neighbour that is a switch. Phones and
+access points are skipped. Read the generated file:
 
 * switches it could not log into are listed at the bottom; fix and re-run, or
   add them by hand;
@@ -161,7 +173,7 @@ switches:
 You can also write the file by hand; see
 `ansible/inventory/sites/example.yml.sample`.
 
-### 2. Point the switches at the monitoring host
+### 3. Point the switches at the monitoring host
 
 ```bash
 make monitoring SITE=hq CHECK=1   # shows the commands, changes nothing
@@ -172,7 +184,7 @@ If the switches have a management SVI, set `logging_source_interface` and
 `snmp_trap_source` (for example `Vlan99`) in the site's `vars:`. LibreNMS then
 always recognises the sender.
 
-### 3. Fill LibreNMS and Oxidized
+### 4. Fill LibreNMS and Oxidized
 
 ```bash
 make sync
@@ -181,12 +193,13 @@ make sync
 This adds every switch to LibreNMS (SNMP credentials from `.env`) in a device
 group `site-hq`, and creates five alert rules: MAC flapping, BPDU Guard / Root
 Guard / Loop Guard blocks, other STP inconsistencies, root bridge changes and
-err-disabled ports. It also writes Oxidized's device list and reloads it.
+err-disabled ports. It also records the switches' SSH host keys, writes
+Oxidized's device list with each switch's login, and reloads Oxidized.
 
 LibreNMS sends alerts only after you add an **alert transport** (e-mail,
 Teams, Slack...) under *Alerts → Alert Transports*.
 
-### 4. Audit
+### 5. Audit
 
 ```bash
 make audit SITE=hq
@@ -210,9 +223,10 @@ The report has:
   a rogue switch...).
 
 Everything collected is kept under `reports/<run>/raw/` (one text file per
-command per switch), so you can grep it later.
+command per switch), so you can grep it later. Passwords, keys and SNMP
+communities in it are replaced with `<secret hidden>`.
 
-### 5. Plan
+### 6. Plan
 
 ```bash
 make plan SITE=hq
@@ -237,7 +251,7 @@ The plan stops for a person when something is unsafe to automate: a switch
 running MST, or another switch with a priority that would beat the new root.
 Policy is set in the inventory; see [Settings](#settings).
 
-### 6. Apply
+### 7. Apply
 
 Do this in a maintenance window. Changing the mode or the root bridge makes
 spanning tree reconverge (a few seconds with Rapid-PVST+, up to 50 s on
@@ -254,7 +268,7 @@ lines, then the mode and priority lines, and must still have its uplinks up
 and no new err-disabled ports before its config is saved. The first failure
 stops the whole rollout; see [How changes are kept safe](#how-changes-are-kept-safe).
 
-### 7. Check the result
+### 8. Check the result
 
 ```bash
 make audit SITE=hq          # straight away: roots, modes, edge ports
@@ -279,6 +293,8 @@ native-VLAN mismatches, err-disabled ports and so on.
 | `make backup` | Save every running-config to `backups/<site>/` now (Oxidized also does this hourly) |
 | `make audit` / `make plan` / `make apply` | As above, for all sites when `SITE` is omitted |
 | `make sync` | After adding or removing switches in the inventory |
+| `make credentials-import CSV=passwords.csv` | Add per-switch logins from a spreadsheet export |
+| `make forget-host HOST=10.10.0.7` | Accept the new SSH host key of a replaced switch |
 | `make ps`, `make logs SERVICE=oxidized` | Container status and logs |
 | `make shell` | A shell in the toolbox, with `ansible-playbook` and `netaudit` |
 
@@ -306,6 +322,104 @@ an SSH tunnel: `ssh -L 8888:127.0.0.1:8888 <host>`.
 * A remote site only needs SSH and SNMP from this host, and syslog/traps back
   to it. If a site sends syslog to a different address (NAT, a relay), set
   `monitoring_host` in that site's `vars:`.
+
+---
+
+## Switch logins and security
+
+### Where the switch logins go
+
+| File | What |
+| --- | --- |
+| `.env` | The default login: `NET_USERNAME`, `NET_PASSWORD`, `NET_ENABLE_SECRET` |
+| `ansible/inventory/credentials.yml` | Switches or sites with a different login (git-ignored) |
+
+Ansible, Oxidized and discovery all follow the same rules. A switch's own
+entry beats its site's entry, which beats `.env`, and whatever an entry leaves
+out comes from the next level. Keys are inventory names, management addresses
+or site names:
+
+```yaml
+hq-acc-01:                    # by inventory name
+  password: 'Uniq#ue-pass-1'
+10.10.0.13:                   # by management address
+  username: 'admin'
+  password: 'other-pass'
+  enable: 'its-enable-secret' # only if this login lands at the '>' prompt
+branch1:                      # every switch of the branch1 site
+  username: 'branchadmin'
+  password: 'branch-pass'
+```
+
+Start from `ansible/inventory/credentials.yml.sample`. Put every value in
+single quotes. A mistake such as an unquoted `0123`, which YAML reads as the
+number 83, stops the run with a message rather than trying a wrong password.
+
+**From a spreadsheet.** Save the passwords as CSV in this directory, with a
+header row naming the columns `switch`, `username`, `password` and/or
+`enable`. Comma- or semicolon-separated both work. Then:
+
+```bash
+make credentials-import CSV=passwords.csv   # adds to or updates credentials.yml
+rm passwords.csv
+```
+
+Discovery uses the file too. It matches neighbours by their CDP name, and the
+seed switch by the address or name you give in `SEED`.
+
+**Encrypting the file.** `ansible-vault encrypt ansible/inventory/credentials.yml`
+works; add `ARGS=--ask-vault-pass` to the make commands. It protects copies of
+the file, but Oxidized still needs the passwords in `oxidized/router.json`,
+and discovery cannot read an encrypted file.
+
+**The long-term fix** for "every switch has its own password" is TACACS+ or
+RADIUS (ISE, ClearPass, NPS, FreeRADIUS...). That gives you one automation
+account that works everywhere and can be disabled in one place, plus personal
+accounts for people. The unique local passwords then stay only as the
+break-glass fallback, and `.env` is all this project needs. `make deploy` can
+roll out the AAA configuration as a snippet. Try it on one switch first, with
+console access at hand.
+
+### What protects the credentials
+
+* `.env`, `credentials.yml`, `oxidized/router.json` and Oxidized's generated
+  config are readable by their owner only. Anyone with root or Docker access
+  on this host can still read them, so keep the host dedicated to this job and
+  limit who can log in.
+* Saved output does not contain secrets. Passwords, keys and SNMP communities
+  are replaced with `<secret hidden>` in the audit's raw files and in
+  `make show` files, as Oxidized does in its backups. The pre-change backups in
+  `backups/` stay complete, so they can be restored. Everything the toolbox
+  writes is readable by you only.
+* **SSH host keys are checked**, trust on first use. The first time a switch
+  is contacted, its key is recorded in `data/ssh/known_hosts`. From then on
+  Ansible and Oxidized refuse to log in to anything that presents a different
+  key, so a device posing as a switch never receives a password. After
+  replacing a switch, accept its new key with `make forget-host HOST=<address>`.
+* The Oxidized web UI and API (port 8888) have no login and listen on
+  localhost only. The API shows the enable secret of a switch that has its
+  own in `credentials.yml`. Accounts at privilege 15 need no enable secret.
+* On the switches, allow SSH only from this host and your admin networks
+  (`access-class` on the vty lines), and prefer SNMPv3 (`SNMP_VERSION=v3`).
+
+### HTTPS for LibreNMS
+
+LibreNMS serves plain HTTP on port 8000. To put HTTPS in front of it, set in `.env`:
+
+```bash
+COMPOSE_FILE=compose.yaml:compose.https.yaml
+LIBRENMS_HTTPS_HOST=librenms.example.net   # the name users browse to
+LIBRENMS_HTTP_BIND=127.0.0.1               # plain HTTP from this host only
+```
+
+Then run `make up`. Caddy serves `https://librenms.example.net` with a
+certificate from its own CA. To trust that CA once in your browsers (or by
+group policy), export it with
+`docker compose exec -T https cat /data/caddy/pki/authorities/local/root.crt > librenms-ca.crt`.
+
+If you already run a reverse proxy, point it at port 8000 instead, and add
+`APP_TRUSTED_PROXIES=<its address>` to `data/librenms/.env` so that LibreNMS
+builds `https://` links.
 
 ---
 
@@ -354,6 +468,7 @@ used ones:
 | `apply_batches` | `[1, 1, 1, 5]` | Rollout batch sizes; the last value repeats |
 | `confirm_batches` | `true` | Wait for Enter between batches |
 | `stp_auto_rollback` | `false` | Push the rollback automatically when a post-check fails |
+| `switch_mgmt_check_host_keys` | `true` | Record new switches' SSH host keys and refuse changed ones |
 | `logging_source_interface`, `snmp_trap_source` | `""` | Source interface for syslog and traps |
 | `ntp_servers` | `[]` | NTP servers set by `make monitoring` |
 
@@ -366,9 +481,11 @@ Everything lives in this directory:
 | Path | Contents |
 | --- | --- |
 | `.env` | Credentials and settings |
-| `ansible/inventory/` | The switch inventory (commit it, but never `.env`) |
+| `ansible/inventory/` | The switch inventory (commit it; `credentials.yml` in it is git-ignored) |
+| `ansible/inventory/credentials.yml` | Per-switch logins |
 | `data/db`, `data/librenms` | LibreNMS database, graphs, settings |
 | `data/oxidized` | Oxidized's git repository of configs |
+| `data/ssh` | The switches' SSH host keys |
 | `reports/`, `backups/` | Audit reports and pre-change backups |
 
 **Move to another host:** `make down`, then copy the directory with
@@ -377,8 +494,9 @@ new host and run `make up`. If the host's IP changes, update `MONITORING_HOST`
 and run `make monitoring` so the switches send syslog and traps to the new
 address.
 
-**Back up** the directory, or at least `.env`, `ansible/inventory/` and
-`data/`. For a consistent database copy while the stack runs, use
+**Back up** the directory, or at least `.env`, `ansible/inventory/` (with
+`credentials.yml`) and `data/`. These hold passwords, so store the copies as
+carefully as the host. For a consistent database copy while the stack runs, use
 `docker compose exec -T db sh -c 'mariadb-dump -u librenms -p"$MYSQL_PASSWORD" librenms' > librenms.sql`.
 
 **Upgrade:** image versions are pinned in `compose.yaml` and can be overridden
@@ -408,20 +526,27 @@ container. Run `sudo conntrack -D -p udp --dport 514` (conntrack-tools) or
 restart Docker.
 
 **Oxidized shows a node as failed, or LibreNMS has no Config tab.**
-Check `make logs SERVICE=oxidized`. If your account needs `enable`, set
-`NET_ENABLE_SECRET`. Node names come from the inventory, so run `make sync`
-after renaming switches.
+Check `make logs SERVICE=oxidized`. If the account needs `enable`, set
+`NET_ENABLE_SECRET` (or `enable` in the switch's `credentials.yml` entry). Run
+`make sync` after changing logins or renaming switches; it also records the
+host keys of new switches, which Oxidized needs before it logs in.
+
+**`host key mismatch for <address>`, or `make sync` reports `changed` keys.**
+The switch presents a different SSH host key from the one recorded the first
+time. That is expected after replacing a switch or regenerating its key
+(`crypto key generate rsa`), and suspicious otherwise. If it is expected, run
+`make forget-host HOST=<address>` (add `PORT=` for a port other than 22) for
+the address in the message, then `make sync`.
+
+**`credentials.yml: put the password of 'x' in quotes`** (or `unknown setting`).
+Fix that entry; values must be quoted strings, and only `username`, `password`
+and `enable` are allowed. A warning that the file **can be read by other
+users** means it needs `chmod 600 ansible/inventory/credentials.yml`.
 
 **`make sync-librenms` says the token is missing or invalid.** Run `make librenms-token`.
 
 **Building the toolbox fails with certificate errors behind a corporate proxy.**
 Set `EXTRA_CA_CERT=/path/to/proxy-ca.pem` in `.env` and run `make build`.
-
-**Host keys.** The toolbox accepts each switch's SSH host key on first contact
-and does not keep them between runs (`host_key_checking = False`), which suits
-networks where switches get replaced. For strict checking, set
-`host_key_checking = True` in `ansible/ansible.cfg` and mount a maintained
-`known_hosts` into the toolbox.
 
 **No alert e-mails.** The alert rules exist, but LibreNMS needs an alert
 transport (*Alerts → Alert Transports*).
@@ -432,15 +557,18 @@ transport (*Alerts → Alert Transports*).
 
 ```
 compose.yaml              LibreNMS (+ dispatcher, syslog-ng, snmptrapd), MariaDB, Redis, Oxidized, toolbox, lab
+compose.https.yaml        optional HTTPS front end for LibreNMS
 Makefile                  every command (run `make`)
 .env.example              settings template (copied to .env by `make init`)
 ansible/
-  inventory/              your switches: sites/<site>.yml, group_vars/, host_vars/
+  inventory/              your switches: sites/<site>.yml, group_vars/, host_vars/,
+                          credentials.yml (per-switch logins, from credentials.yml.sample)
   inventory-lab/          inventory for the simulated lab
   playbooks/              stp_audit, stp_remediate, deploy_snippet, show, backup,
                           monitoring_baseline, librenms_sync, oxidized_sync
   roles/                  switch_mgmt_defaults (all settings), netaudit_collect, stp_apply
   snippets/               config snippets for `make deploy`
+  vars_plugins/           applies credentials.yml (+ tests in ansible/tests/)
 netaudit/                 Python package: IOS parsers, STP analysis, planner, report,
                           CDP discovery, lab simulator (+ tests)
 docker/                   toolbox Dockerfile, Oxidized config template
@@ -452,7 +580,7 @@ docs/stp-runbook.md       spanning-tree findings explained, manual fixes
 Development:
 
 ```bash
-make test                                  # unit tests in the toolbox image
+make test                                  # unit tests (netaudit + Ansible plugin) in the toolbox image
 cd netaudit && pip install -e ".[lab,discover,dev]" && pytest && ruff check src tests
 yamllint . && (cd ansible && ansible-lint)
 ```

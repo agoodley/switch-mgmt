@@ -99,6 +99,10 @@ netaudit_intent_keys:
   - audit_flap_transitions
   - audit_max_pvst_instances
 
+# --- SSH host keys -----------------------------------------------------------------
+# Record new switches' host keys and refuse changed ones (see tasks/main.yml).
+switch_mgmt_check_host_keys: true
+
 # --- rollout behaviour (stp_remediate.yml / deploy_snippet.yml) --------------------
 # Batch sizes: one canary, then the root bridges, then five at a time.
 apply_batches: [1, 1, 1, 5]

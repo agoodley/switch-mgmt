@@ -43,5 +43,8 @@ RUN groupadd -g 1000 netops && useradd -u 1000 -g 1000 -d /home/netops -m -s /bi
  && mkdir -p /home/netops/.ansible /home/netops/.ssh \
  && chmod -R a+rwX /home/netops
 
+COPY docker/toolbox/entrypoint.sh /usr/local/bin/toolbox-entrypoint
+
 WORKDIR /work/ansible
+ENTRYPOINT ["toolbox-entrypoint"]
 CMD ["bash"]

@@ -1,6 +1,7 @@
 """Jinja filters that reuse netaudit's IOS parsers inside playbooks."""
 
 from netaudit.parsers.interfaces import parse_errdisabled, parse_interfaces_status
+from netaudit.sanitize import remove_secrets
 from netaudit.util import short_interface
 
 
@@ -19,9 +20,15 @@ def ios_errdisabled(text):
     return sorted(short_interface(p) for p in ports)
 
 
+def ios_remove_secrets(text):
+    """Hide passwords, keys and SNMP communities (like Oxidized's remove_secret)."""
+    return remove_secrets(text)
+
+
 class FilterModule:
     def filters(self):
         return {
             "ios_interfaces_status": ios_interfaces_status,
             "ios_errdisabled": ios_errdisabled,
+            "ios_remove_secrets": ios_remove_secrets,
         }

@@ -32,14 +32,17 @@ jobs:
           ansible-galaxy collection install -r ansible/requirements.yml
 
       - name: Ruff
-        working-directory: netaudit
         run: |
-          ruff check src tests
-          ruff format --check src tests
+          (cd netaudit && ruff check src tests && ruff format --check src tests)
+          ruff check --config netaudit/pyproject.toml ansible
+          ruff format --check --config netaudit/pyproject.toml ansible
 
       - name: Unit tests
         working-directory: netaudit
         run: pytest -q
+
+      - name: Ansible plugin tests
+        run: pytest -q -p no:cacheprovider ansible/tests
 
       - name: yamllint
         run: yamllint .

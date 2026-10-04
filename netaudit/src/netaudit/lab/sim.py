@@ -82,6 +82,8 @@ class SimSwitch:
         self.iosxe = bool(spec.get("iosxe", False))
         self.edge_syntax = bool(spec.get("portfast_edge_syntax", False))
         self.legacy_ssh = bool(spec.get("legacy_ssh", False))
+        # username / password / enable: the lab-wide ones unless the switch has its own
+        self.login = {**lab.ssh, **(spec.get("ssh") or {})}
         self.mgmt_ip = spec.get("mgmt_ip", "")
         self.boot_time = lab.t0 - float(spec.get("uptime_days", 30)) * 86400
         self.stp_restart = self.boot_time
@@ -253,7 +255,7 @@ class Lab:
             "boot-start-marker",
             "boot-end-marker",
             "enable secret 9 $9$labsecretlabsecretlabsecret",
-            f"username {self.ssh.get('username', 'labadmin')} privilege 1 secret 9 $9$labuserlabuser",
+            f"username {sw.login.get('username', 'labadmin')} privilege 1 secret 9 $9$labuserlabuser",
             "no aaa new-model",
             "ip domain-name lab.local",
             "vtp mode transparent",

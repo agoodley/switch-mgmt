@@ -16,6 +16,7 @@ from markupsafe import Markup
 from ..analysis import AuditResult
 from ..analysis.findings import SEVERITIES
 from ..analysis.topology import VlanView
+from ..sanitize import remove_secrets
 from ..util import compress_vlans, format_duration, short_interface, slugify
 from . import diagram
 
@@ -369,4 +370,4 @@ def split_raw(raw_dir: Path) -> None:
         host_dir = raw_dir / path.stem
         host_dir.mkdir(exist_ok=True)
         for command, output in (payload.get("outputs") or {}).items():
-            (host_dir / f"{slugify(command)}.txt").write_text(output or "", encoding="utf-8")
+            (host_dir / f"{slugify(command)}.txt").write_text(remove_secrets(output), encoding="utf-8")

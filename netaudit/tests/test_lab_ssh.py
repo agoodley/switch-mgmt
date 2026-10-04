@@ -16,11 +16,12 @@ def host_key(tmp_path_factory):
     return _host_key(str(tmp_path_factory.mktemp("keys") / "lab_host_key"))
 
 
-def connect(lab, name, host_key):
+def connect(lab, name, host_key, login=None):
     server_side, client_side = socket.socketpair()
     threading.Thread(target=_handle, args=(lab, lab.switches[name], server_side, host_key), daemon=True).start()
     transport = paramiko.Transport(client_side)
-    transport.connect(username="labadmin", password="labpass")
+    login = login or lab.switches[name].login
+    transport.connect(username=login["username"], password=login["password"])
     return transport
 
 
@@ -73,6 +74,24 @@ def test_legacy_switch_only_offers_old_algorithms(lab, host_key):
         channel = transport.open_session()
         channel.exec_command("show version")
         assert "acc-04 uptime is" in read_until(channel, "Configuration register")
+    finally:
+        transport.close()
+
+
+def test_a_switch_with_its_own_login_refuses_the_shared_one(lab, host_key):
+    assert lab.switches["acc-04"].login["username"] == "oldadmin"
+    with pytest.raises(paramiko.AuthenticationException):
+        connect(lab, "acc-04", host_key, login=lab.ssh)
+    transport = connect(lab, "acc-04", host_key)
+    try:
+        channel = transport.open_session()
+        channel.get_pty()
+        channel.invoke_shell()
+        read_until(channel, "acc-04>")
+        channel.send("enable\n")
+        read_until(channel, "Password: ")
+        channel.send(lab.switches["acc-04"].login["enable"] + "\n")
+        read_until(channel, "acc-04#")
     finally:
         transport.close()
 

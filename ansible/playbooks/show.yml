@@ -5,7 +5,8 @@
 #   ansible-playbook playbooks/show.yml -e '{"cmd": "show interfaces status err-disabled"}' --limit hq
 #
 # Output is printed per switch and written to reports/show/<time>-<command>/
-# (one file per switch plus all.txt).
+# (one file per switch plus all.txt; passwords, keys and SNMP communities are
+# hidden in these files).
 
 - name: Run a show command
   hosts: switches
@@ -33,7 +34,7 @@
       ansible.builtin.file:
         path: "{{ show_dir }}"
         state: directory
-        mode: "0755"
+        mode: "0700"
       run_once: true
       delegate_to: localhost
       check_mode: false
@@ -52,8 +53,8 @@
     - name: Save the output
       ansible.builtin.copy:
         dest: "{{ show_dir }}/{{ inventory_hostname }}.txt"
-        content: "{{ show_result.stdout[0] }}\n"
-        mode: "0644"
+        content: "{{ show_result.stdout[0] | ios_remove_secrets }}\n"
+        mode: "0600"
       delegate_to: localhost
       check_mode: false
 
@@ -70,5 +71,7 @@
 
     - name: Where the output is
       ansible.builtin.debug:
-        msg: "Saved to {{ show_dir }}/ (all.txt has every switch)"
+        msg: >-
+          Saved to {{ show_dir | replace(switch_mgmt_root ~ '/', '') }}/ (all.txt has every
+          switch; passwords and keys are hidden in the files)
       run_once: true

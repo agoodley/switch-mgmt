@@ -1,5 +1,9 @@
 # secrets and runtime state
 .env
+ansible/inventory/credentials.yml
+ansible/inventory/credentials.yml.tmp
+# spreadsheets exported for `make credentials-import` (they hold passwords)
+/*.csv
 data/
 reports/
 backups/

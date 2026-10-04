@@ -5,14 +5,18 @@
 # roles/switch_mgmt_defaults/defaults/main.yml.
 
 # --- how Ansible logs in ------------------------------------------------------------
+# Passwords never go here.  The default login comes from .env; switches or sites
+# with a different login are listed in inventory/credentials.yml (copy
+# credentials.yml.sample), which overrides these three values for them.
 ansible_connection: ansible.netcommon.network_cli
 ansible_network_os: cisco.ios.ios
 ansible_user: "{{ lookup('ansible.builtin.env', 'NET_USERNAME') }}"
 ansible_password: "{{ lookup('ansible.builtin.env', 'NET_PASSWORD') }}"
+# Only needed if the account lands in user EXEC mode (prompt ends in '>').
+switch_enable_secret: "{{ lookup('ansible.builtin.env', 'NET_ENABLE_SECRET') }}"
 ansible_become: true
 ansible_become_method: ansible.netcommon.enable
-# Leave NET_ENABLE_SECRET empty if your account logs straight in at privilege 15.
-ansible_become_password: "{{ lookup('ansible.builtin.env', 'NET_ENABLE_SECRET') | default(lookup('ansible.builtin.env', 'NET_PASSWORD'), true) }}"
+ansible_become_password: "{{ switch_enable_secret | default(ansible_password, true) }}"
 # paramiko still speaks the SHA-1 key exchanges older Catalyst images need.
 ansible_network_cli_ssh_type: paramiko
 ansible_paramiko_look_for_keys: false

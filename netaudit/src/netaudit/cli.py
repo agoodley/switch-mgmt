@@ -1,4 +1,4 @@
-"""Command line entry point: ``netaudit analyze|discover|lab``."""
+"""Command line entry point: ``netaudit analyze|discover|known-hosts|credentials-import|lab``."""
 
 from __future__ import annotations
 
@@ -88,19 +88,29 @@ def print_summary(result, report_path: Path) -> None:
 
 
 def cmd_discover(args: argparse.Namespace) -> int:
+    from dataclasses import replace
+
+    from .credentials import CredentialsError, default_login, load_credentials
     from .discover import crawl, write_inventory
 
-    username = args.username or os.environ.get("NET_USERNAME", "")
-    password = os.environ.get("NET_PASSWORD", "")
-    secret = os.environ.get("NET_ENABLE_SECRET", "") or password
-    if not username or not password:
+    login = default_login()
+    if args.username:
+        login = replace(login, username=args.username)
+    try:
+        credentials = load_credentials(args.credentials)
+    except CredentialsError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if not (login.username and login.password) and not credentials:
         print("error: set NET_USERNAME and NET_PASSWORD (e.g. in .env)", file=sys.stderr)
         return 2
+    if credentials:
+        print(f"Using the logins in {args.credentials} for the switches it lists", file=sys.stderr)
     result = crawl(
         seeds=args.seed,
-        username=username,
-        password=password,
-        secret=secret,
+        login=login,
+        credentials=credentials,
+        site=args.site,
         max_hosts=args.max_hosts,
         workers=args.workers,
         exclude_platforms=args.exclude_platform,
@@ -120,11 +130,36 @@ def cmd_discover(args: argparse.Namespace) -> int:
     return 0 if result.switches else 1
 
 
+def cmd_known_hosts(args: argparse.Namespace) -> int:
+    from .hostkeys import DEFAULT_FILE, parse_target, update_known_hosts
+
+    targets = [parse_target(t) for t in args.target]
+    results = update_known_hosts(args.file or DEFAULT_FILE, targets, timeout=args.timeout)
+    for r in results:
+        print(f"{r.status:8} {r.target:28} {r.key_type:20} {r.fingerprint}{'  ' + r.detail if r.detail else ''}")
+    return 3 if any(r.status == "changed" for r in results) else 0
+
+
+def cmd_credentials_import(args: argparse.Namespace) -> int:
+    from .credentials import CredentialsError, merge_into, read_csv
+
+    try:
+        entries = read_csv(args.csv)
+        added, updated = merge_into(args.file, entries)
+    except (CredentialsError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"{args.file}: {added} added, {updated} updated ({len(entries)} rows read).")
+    print(f"Delete {args.csv} now - it holds the passwords in plain text.")
+    return 0
+
+
 def cmd_lab_generate(args: argparse.Namespace) -> int:
     from datetime import datetime
 
     from .lab.sim import load_lab
     from .parsers import AUDIT_COMMANDS
+    from .sanitize import remove_secrets
 
     lab = load_lab(args.topology)
     raw_dir = Path(args.out) / "raw"
@@ -137,7 +172,7 @@ def cmd_lab_generate(args: argparse.Namespace) -> int:
             if output is None:
                 errors[command] = "% Invalid input detected at '^' marker."
             else:
-                outputs[command] = output
+                outputs[command] = remove_secrets(output)
         payload = {
             "host": name,
             "collected_at": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -184,6 +219,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out", help="inventory file to write (default: print)")
     p.add_argument("--force", action="store_true")
     p.add_argument("--username", help="default: $NET_USERNAME")
+    p.add_argument(
+        "--credentials",
+        help="credentials.yml with per-switch / per-site logins (keys: switch name, address or site)",
+    )
     p.add_argument("--port", type=int, default=22)
     p.add_argument("--max-hosts", type=int, default=500)
     p.add_argument("--workers", type=int, default=8)
@@ -194,6 +233,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="regex of CDP platforms to skip (APs and phones are skipped already)",
     )
     p.set_defaults(func=cmd_discover)
+
+    p = sub.add_parser("known-hosts", help="record switches' SSH host keys (trust on first use), report changes")
+    p.add_argument("target", nargs="+", help="host or host:port")
+    p.add_argument("--file", help="known_hosts file (default: ~/.ssh/known_hosts)")
+    p.add_argument("--timeout", type=float, default=10.0)
+    p.set_defaults(func=cmd_known_hosts)
+
+    p = sub.add_parser("credentials-import", help="add logins from a CSV export to credentials.yml")
+    p.add_argument("csv", help="CSV with a header row: switch (or name/host/ip/site), username, password, enable")
+    p.add_argument("--file", required=True, help="credentials.yml to create or update")
+    p.set_defaults(func=cmd_credentials_import)
 
     lab = sub.add_parser("lab", help="simulated switches for testing").add_subparsers(dest="lab_command", required=True)
     p = lab.add_parser("generate", help="write simulated audit outputs (no SSH needed)")

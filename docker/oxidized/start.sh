@@ -1,14 +1,25 @@
 #!/bin/bash
 # Entry point wrapper for the Oxidized container:
-#  1. render the Oxidized config from config.erb + environment (.env), so the
+#  1. run Oxidized as the host user (PUID/PGID), so it can read router.json
+#     and known_hosts, which only their owner may read;
+#  2. use the shared known_hosts (data/ssh) for strict host key checking;
+#  3. render the Oxidized config from config.erb + environment (.env), so the
 #     switch credentials never live in a file in the repository;
-#  2. wait until `make sync-oxidized` has written at least one switch to
+#  4. wait until `make sync-oxidized` has written at least one switch to
 #     router.json (Oxidized exits when its source is empty);
-#  3. hand over to the image's normal process supervisor.
+#  5. hand over to the image's normal process supervisor.
 set -euo pipefail
 
 conf_dir=/home/oxidized/.config/oxidized
 router=/etc/switch-mgmt/router.json
+
+if [[ -n "${PUID:-}" && "$(id -u oxidized)" != "$PUID" ]]; then
+  groupmod -o -g "${PGID:-$PUID}" oxidized
+  usermod -o -u "$PUID" -g "${PGID:-$PUID}" oxidized
+fi
+
+mkdir -p /etc/ssh
+ln -sf /etc/switch-mgmt-ssh/known_hosts /etc/ssh/ssh_known_hosts
 
 mkdir -p "$conf_dir"
 (umask 077 && ruby -rerb -rjson -e 'print ERB.new(File.read(ARGV[0]), trim_mode: "-").result' \

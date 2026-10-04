@@ -5,6 +5,7 @@
 #   CHECK=1           dry run for deploy / monitoring
 #   INVENTORY=...     inventory directory inside ansible/ (default: inventory;
 #                     inventory-lab for the simulated switches)
+#   ARGS=...          extra ansible-playbook options, e.g. ARGS=--ask-vault-pass
 
 SHELL := /bin/sh
 COMPOSE ?= docker compose
@@ -15,12 +16,13 @@ LIMIT := $(if $(SITE),--limit '$(SITE)',)
 CHECKFLAG := $(if $(filter 1 yes true,$(CHECK)),--check,)
 # DC_RUN_FLAGS=-T disables the TTY (CI, cron).
 RUN := $(COMPOSE) run --rm $(DC_RUN_FLAGS) ansible
-PLAYBOOK := $(RUN) ansible-playbook -i $(INVENTORY)
+PLAYBOOK := $(RUN) ansible-playbook -i $(INVENTORY) $(ARGS)
 
 .DEFAULT_GOAL := help
 .PHONY: help init build up down restart ps logs pull librenms-admin librenms-token \
-        discover sync sync-oxidized sync-librenms audit plan apply report show deploy \
-        monitoring backup lab-up lab-down lab-audit lab-plan lab-apply lab-reset shell test
+        discover credentials-import forget-host sync sync-oxidized sync-librenms audit plan apply \
+        report show deploy monitoring backup lab-up lab-down lab-audit lab-plan lab-apply lab-reset \
+        shell test
 
 help: ## Show this help
 	@echo "switch-mgmt - LibreNMS + Oxidized + Ansible for Cisco switches"
@@ -36,7 +38,10 @@ init: ## First run: create .env (random DB password) and the data directories
 	      .env.example > .env && chmod 600 .env && echo "Created .env - edit it (switch login, SNMP, MONITORING_HOST)"; \
 	else echo ".env already exists"; fi
 	@mkdir -p data/librenms data/db data/oxidized reports backups oxidized
+	@mkdir -p -m 700 data/ssh && touch data/ssh/known_hosts && chmod 600 data/ssh/known_hosts
 	@[ -f oxidized/router.json ] || echo '[]' > oxidized/router.json
+	@chmod 600 ansible/inventory-lab/credentials.yml
+	@[ ! -f ansible/inventory/credentials.yml ] || chmod 600 ansible/inventory/credentials.yml
 	@chmod +x scripts/*.sh docker/oxidized/start.sh
 
 build: ## Build the Ansible/netaudit toolbox image
@@ -71,7 +76,17 @@ librenms-token: ## Create a LibreNMS API token and store it in .env
 ## Inventory and integration
 discover: ## Build ansible/inventory/sites/SITE.yml from CDP: make discover SITE=hq SEED=10.0.0.1
 	@[ -n "$(SITE)" ] && [ -n "$(SEED)" ] || { echo "usage: make discover SITE=hq SEED=10.0.0.1 [SEED2=...]"; exit 2; }
-	$(RUN) netaudit discover --site $(SITE) --seed $(SEED) $(if $(SEED2),--seed $(SEED2),) --out inventory/sites/$(SITE).yml
+	$(RUN) netaudit discover --site $(SITE) --seed $(SEED) $(if $(SEED2),--seed $(SEED2),) \
+	  --credentials inventory/credentials.yml --out inventory/sites/$(SITE).yml
+
+credentials-import: ## Add per-switch logins from a spreadsheet: make credentials-import CSV=passwords.csv
+	@[ -n "$(CSV)" ] && [ -f "$(CSV)" ] || { echo "usage: make credentials-import CSV=passwords.csv (a file in this directory)"; exit 2; }
+	$(COMPOSE) run --rm $(DC_RUN_FLAGS) -w /work ansible netaudit credentials-import $(CSV) --file ansible/inventory/credentials.yml
+
+forget-host: ## Accept a replaced switch's new SSH key: make forget-host HOST=10.10.0.7 [PORT=22]
+	@[ -n "$(HOST)" ] || { echo "usage: make forget-host HOST=<address the switch is reached at> [PORT=22]"; exit 2; }
+	$(RUN) ssh-keygen -f /home/netops/.ssh/known_hosts -R '$(if $(filter-out 22,$(or $(PORT),22)),[$(HOST)]:$(PORT),$(HOST))'
+	@echo "The next connection records the switch's current key (run make sync to do it now)."
 
 sync: sync-oxidized sync-librenms ## Push the inventory to Oxidized and LibreNMS
 
@@ -132,6 +147,6 @@ lab-apply: ## make apply against the lab
 shell: ## Shell in the toolbox container
 	$(RUN) bash
 
-test: ## Run the netaudit unit tests against the checked-out code (in the toolbox image)
+test: ## Run the unit tests (netaudit + Ansible plugin) against the checked-out code, in the toolbox
 	$(COMPOSE) run --rm $(DC_RUN_FLAGS) -w /work -e PYTHONPATH=/work/netaudit/src ansible \
-	  pytest -q -p no:cacheprovider netaudit/tests
+	  pytest -q -p no:cacheprovider netaudit/tests ansible/tests

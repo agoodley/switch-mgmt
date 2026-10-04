@@ -352,7 +352,7 @@ class CliSession:
 
 
 def _handle(lab: Lab, sw: SimSwitch, client: socket.socket, host_key: paramiko.PKey) -> None:
-    creds = lab.ssh
+    creds = sw.login
     transport = paramiko.Transport(client)
     transport.add_server_key(host_key)
     transport.local_version = "SSH-2.0-Cisco-1.25"
@@ -435,6 +435,9 @@ def serve(
         lab.ssh.get("password"),
         lab.ssh.get("enable"),
     )
+    for name, sw in lab.switches.items():
+        if sw.login != lab.ssh:
+            log.info("%s has its own login (user %s)", name, sw.login.get("username"))
     try:
         while True:
             time.sleep(3600)

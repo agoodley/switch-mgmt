@@ -2,10 +2,11 @@
 
     netaudit discover --seed 10.10.0.1 --site hq --out ansible/inventory/sites/hq.yml
 
-Logs in with Netmiko (credentials from NET_USERNAME / NET_PASSWORD /
-NET_ENABLE_SECRET), reads `show version` and `show cdp neighbors detail`,
-follows every neighbour that advertises the Switch capability, and writes an
-Ansible inventory file for the site.
+Logs in with Netmiko (the login from NET_USERNAME / NET_PASSWORD /
+NET_ENABLE_SECRET, or the switch's entry in credentials.yml), reads `show
+version` and `show cdp neighbors detail`, follows every neighbour that
+advertises the Switch capability, and writes an Ansible inventory file for the
+site.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Protocol
 
+from .credentials import Login, resolve
 from .model import Neighbor
 from .parsers.neighbors import parse_cdp_neighbors_detail
 from .parsers.platform import parse_version
@@ -63,6 +65,8 @@ def netmiko_connect(host: str, username: str, password: str, secret: str, port: 
         auth_timeout=20,
         banner_timeout=20,
         fast_cli=False,
+        # Check switches already in ~/.ssh/known_hosts; new ones are accepted.
+        system_host_keys=True,
     )
     if not connection.check_enable_mode():
         connection.enable()
@@ -71,24 +75,29 @@ def netmiko_connect(host: str, username: str, password: str, secret: str, port: 
 
 def crawl(
     seeds: list[str],
-    username: str,
-    password: str,
-    secret: str = "",
+    login: Login,
+    credentials: dict[str, dict[str, str]] | None = None,
+    site: str = "",
     max_hosts: int = 500,
     workers: int = 8,
     exclude_platforms: list[str] | None = None,
     port: int = 22,
     connect: Callable[..., Session] | None = None,
 ) -> CrawlResult:
+    """Crawl CDP from ``seeds``.  Each switch is logged into with ``login``,
+    unless ``credentials`` has an entry for its site, address or CDP name."""
     connect = connect or netmiko_connect
+    credentials = credentials or {}
+    site_keys = [site, _group_name(site)] if site else []
     patterns = [re.compile(DEFAULT_EXCLUDE)] + [re.compile(p, re.I) for p in (exclude_platforms or [])]
     result = CrawlResult(seeds=list(seeds))
     queued: set[str] = set()
     names_seen: set[str] = set()
 
-    def visit(ip: str, via: str) -> tuple[str, str, FoundSwitch | None, list[Neighbor], str | None]:
+    def visit(ip: str, via: str, name: str = "") -> tuple[str, str, FoundSwitch | None, list[Neighbor], str | None]:
+        switch_login = resolve(credentials, login, *site_keys, ip, name)
         try:
-            session = connect(ip, username, password, secret, port=port)
+            session = connect(ip, switch_login.username, switch_login.password, switch_login.secret, port=port)
         except Exception as exc:  # noqa: BLE001 - report every connection problem
             return ip, via, None, [], f"{type(exc).__name__}: {exc}".splitlines()[0][:200]
         try:
@@ -140,14 +149,23 @@ def crawl(
                         continue
                     queued.add(neighbor.mgmt_ip)
                     pending.add(
-                        pool.submit(visit, neighbor.mgmt_ip, f"{found.name} {short_interface(neighbor.local_port)}")
+                        pool.submit(
+                            visit,
+                            neighbor.mgmt_ip,
+                            f"{found.name} {short_interface(neighbor.local_port)}",
+                            short_hostname(neighbor.remote_name),
+                        )
                     )
     return result
 
 
+def _group_name(site: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_]", "_", site)
+
+
 def write_inventory(result: CrawlResult, site: str) -> str:
     """Render the crawl result as an Ansible inventory file for one site."""
-    group = re.sub(r"[^A-Za-z0-9_]", "_", site)
+    group = _group_name(site)
     degree = {name: len(set(sw.switch_neighbors)) for name, sw in result.switches.items()}
     likely_core = sorted(degree, key=lambda n: (-degree[n], n))[:2] if degree else []
     stamp = datetime.now(UTC).isoformat(timespec="seconds")

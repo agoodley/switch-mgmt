@@ -113,7 +113,7 @@ def cli(lab: Lab, host: str, *lines: str, privileged: bool = True):
     from netaudit.lab.server import CliSession
 
     channel = FakeChannel()
-    session = CliSession(lab, lab.switches[host], channel, str(lab.ssh.get("enable", "labenable")))
+    session = CliSession(lab, lab.switches[host], channel, str(lab.switches[host].login.get("enable", "labenable")))
     if privileged:
         session.mode = "priv"
     for line in lines:

@@ -6,8 +6,10 @@
 #   make sync-oxidized
 #
 # The file always lists every switch in the inventory, even with --limit.
-# Credentials are NOT written here: the Oxidized container reads them from
-# .env when it starts (oxidized/config.erb).
+# It holds each switch's login (credentials.yml, or the .env default), so it
+# is readable by its owner only.  Oxidized checks SSH host keys strictly:
+# keys of switches it has never seen are recorded here first (trust on first
+# use, in data/ssh/known_hosts); changed keys are reported, not accepted.
 
 - name: Write router.json and reload Oxidized
   hosts: switches
@@ -20,6 +22,9 @@
     - name: Resolve management addresses
       ansible.builtin.set_fact:
         oxidized_ips: "{{ oxidized_ips | default({}) | combine({item: oxidized_addr}) }}"
+        oxidized_targets: >-
+          {{ oxidized_targets | default([])
+             + [('[' ~ oxidized_addr ~ ']' if ':' in oxidized_addr else oxidized_addr) ~ ':' ~ (hostvars[item].ansible_port | default(22))] }}
       loop: "{{ groups['switches'] | default([]) }}"
       vars:
         oxidized_name: "{{ hostvars[item].ansible_host | default(item) }}"
@@ -30,11 +35,33 @@
       run_once: true
       delegate_to: localhost
 
+    - name: Record the switches' SSH host keys
+      ansible.builtin.command:
+        argv: "{{ ['netaudit', 'known-hosts', '--file', oxidized_known_hosts] + oxidized_targets }}"
+      vars:
+        oxidized_known_hosts: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/known_hosts"
+      register: oxidized_keys
+      changed_when: oxidized_keys.stdout is search('^added ', multiline=True)
+      failed_when: oxidized_keys.rc not in [0, 3]
+      run_once: true
+      delegate_to: localhost
+      when: not ansible_check_mode
+
+    - name: Host keys Oxidized cannot use
+      ansible.builtin.debug:
+        msg: "{{ oxidized_keys.stdout_lines | select('match', '^(changed|error) ') | list }}"
+      run_once: true
+      when:
+        - not ansible_check_mode
+        - oxidized_keys.stdout is search('^(changed|error) ', multiline=True)
+
     - name: Write oxidized/router.json
       ansible.builtin.template:
         src: oxidized-router.json.j2
         dest: "{{ oxidized_dir }}/router.json"
-        mode: "0644"
+        mode: "0600"
+      # the file holds passwords: never print a diff of it
+      diff: false
       register: oxidized_file
       run_once: true
       delegate_to: localhost

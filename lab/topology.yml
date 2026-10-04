@@ -9,7 +9,8 @@
 #     topology changes
 #   * an unmanaged switch running STP behind acc-02 Gi1/0/11
 #   * a native VLAN mismatch between acc-02 and acc-04 (daisy chain)
-#   * an old 12.2 switch (acc-04) that only speaks legacy SSH algorithms
+#   * an old 12.2 switch (acc-04) that only speaks legacy SSH algorithms and
+#     has its own login (see ansible/inventory-lab/credentials.yml)
 #
 # The fake switches recompute spanning tree from their running-config, so the
 # effect of `make apply` shows up in the next `make audit`.
@@ -83,6 +84,9 @@ switches:
     uptime_days: 388
     mgmt_ip: 10.99.0.14
     legacy_ssh: true
+    # A login of its own, like most switches in a network without TACACS.
+    # (awkward characters on purpose: they must survive YAML, Ansible and Oxidized)
+    ssh: {username: oldadmin, password: "0ld#p@ss:1'x", enable: "3n%ble {{x}}"}
     access_ports: {prefix: FastEthernet0/, from: 1, to: 48, vlan: 10, connected: 18}
     port_layout: {FastEthernet0/: 48, GigabitEthernet0/: 2}
 
