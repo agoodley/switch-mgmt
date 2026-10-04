@@ -106,15 +106,24 @@ all state in named Docker volumes instead of `./data`, and runs the toolbox
 permanently so you can execute commands in it. Everything else (LibreNMS,
 Oxidized, the audit, the plan, the rollout, the lab) is identical.
 
+**If this repository is private**, the panel cannot fetch that URL (it
+returns 404 without a login). Choose *Compose manually* instead and paste the
+contents of `compose.hosted.yaml`; the file is self-contained. Making the
+repository public is the other option.
+
 **Before the first deployment**, the image must be pullable without a login:
 on GitHub open the repository's *Packages* → `switch-mgmt-toolbox` → *Package
-settings* → *Change visibility* → *Public* (a one-time step; alternatively run
-`docker login ghcr.io` on the host).
+settings* → *Change visibility* → *Public*. A package can be public while the
+repository stays private; this is a one-time step. The alternative is
+`docker login ghcr.io` on the host with a token that has `read:packages`.
+The `latest` tag exists once a CI run on `main` (or the default branch) has
+passed; until then use a `sha-<commit>` tag through `TOOLBOX_IMAGE`.
 
 ### In the panel
 
-1. *Docker Manager* → *Compose* → *Compose from URL*, paste the URL above, name
-   the project (the examples below use `switch-mgmt`).
+1. *Docker Manager* → *Compose* → *Compose from URL*, paste the URL above (or
+   *Compose manually* and paste the file), and name the project (the examples
+   below use `switch-mgmt`).
 2. Add the environment variables. They are the ones from `.env.example`:
 
    | Variable | What |
