@@ -50,6 +50,10 @@ COPY ansible /work/ansible
 COPY lab /work/lab
 COPY docker/oxidized /work/docker/oxidized
 COPY librenms/config /work/librenms/config
+# COPY keeps the modes of the checkout (`make init` makes the lab's
+# credentials.yml 600 there); the toolbox runs as PUID, so it must be able to
+# read everything in the image.  The lab passwords are public anyway.
+RUN chmod -R a+rX /work
 
 # Works whatever uid the container runs as (compose passes the host user's
 # PUID/PGID so files in reports/ and backups/ belong to you).
