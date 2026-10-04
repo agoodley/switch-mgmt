@@ -1,0 +1,7 @@
+---
+galaxy_info:
+  author: switch-mgmt
+  description: Shared defaults (paths, STP policy, monitoring) for every switch-mgmt playbook
+  license: MIT
+  min_ansible_version: "2.16"
+dependencies: []

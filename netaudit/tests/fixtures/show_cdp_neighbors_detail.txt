@@ -1,0 +1,79 @@
+-------------------------
+Device ID: core-01.lab.local
+Entry address(es): 
+  IP address: 10.99.0.1
+Platform: cisco C9300-48P,  Capabilities: Router Switch IGMP 
+Interface: GigabitEthernet1/0/49,  Port ID (outgoing port): GigabitEthernet1/0/3
+Holdtime : 155 sec
+
+Version :
+Cisco IOS Software [Cupertino], Catalyst L3 Switch Software (CAT9K_IOSXE), Version 17.9.4a, RELEASE SOFTWARE (fc3)
+Technical Support: http://www.cisco.com/techsupport
+Copyright (c) 1986-2023 by Cisco Systems, Inc.
+Compiled Fri 20-Oct-23 10:44 by mcpre
+
+advertisement version: 2
+VTP Management Domain: ''
+Native VLAN: 1
+Duplex: full
+Management address(es): 
+  IP address: 10.99.0.1
+
+-------------------------
+Device ID: SEP001122334455
+Entry address(es): 
+  IP address: 10.20.0.15
+Platform: Cisco IP Phone 8845,  Capabilities: Host Phone Two-port Mac Relay 
+Interface: GigabitEthernet1/0/3,  Port ID (outgoing port): Port 1
+Holdtime : 133 sec
+Second Port Status: Up
+
+Version :
+sip8845_65.14-2-1-0001-14
+
+advertisement version: 2
+Duplex: full
+Power drawn: 6.300 Watts
+Management address(es): 
+
+-------------------------
+Device ID: AP-FLOOR1
+Entry address(es): 
+  IP address: 10.30.0.21
+Platform: cisco C9120AXI-E,  Capabilities: Router Trans-Bridge Source-Route-Bridge IGMP 
+Interface: GigabitEthernet1/0/5,  Port ID (outgoing port): GigabitEthernet0
+Holdtime : 170 sec
+
+Version :
+Cisco AP Software, ap1g7-k9w8 Version: 17.9.4.27
+
+advertisement version: 2
+Duplex: full
+Power drawn: 25.500 Watts
+Management address(es): 
+  IP address: 10.30.0.21
+
+-------------------------
+Device ID: acc-04
+Entry address(es): 
+  IP address: 10.99.0.14
+Platform: cisco WS-C2960-48TT-L,  Capabilities: Switch IGMP 
+Interface: GigabitEthernet1/0/48,  Port ID (outgoing port): GigabitEthernet0/2
+Holdtime : 128 sec
+
+Version :
+Cisco IOS Software, C2960 Software (C2960-LANBASEK9-M), Version 12.2(55)SE12, RELEASE SOFTWARE (fc2)
+Technical Support: http://www.cisco.com/techsupport
+Copyright (c) 1986-2017 by Cisco Systems, Inc.
+Compiled Thu 02-Feb-17 05:24 by prod_rel_team
+
+advertisement version: 2
+Protocol Hello:  OUI=0x00000C, Protocol ID=0x0112; payload len=27, value=00000000FFFFFFFF010221FF000000000000001BD4AB0400FF0000
+VTP Management Domain: ''
+Native VLAN: 99
+Duplex: full
+Management address(es): 
+  IP address: 10.99.0.14
+
+
+Total cdp entries displayed : 4

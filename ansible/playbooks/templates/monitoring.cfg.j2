@@ -1,0 +1,34 @@
+{# Global lines pushed by monitoring_baseline.yml (one per line, no indentation). #}
+service timestamps log datetime msec
+service timestamps debug datetime msec
+logging buffered {{ logging_buffer_size }} informational
+logging trap {{ syslog_level }}
+logging host {{ monitoring_host }}
+{% if logging_source_interface %}
+logging source-interface {{ logging_source_interface }}
+{% endif %}
+{% if snmp_version == 'v2c' %}
+snmp-server community {{ snmp_community }} RO{{ ' ' ~ snmp_community_acl if snmp_community_acl else '' }}
+snmp-server host {{ monitoring_host }} version 2c {{ snmp_community }}
+{% else %}
+snmp-server group {{ snmp_v3_group }} v3 priv
+snmp-server host {{ monitoring_host }} version 3 priv {{ snmp_v3_user }}
+{% endif %}
+{% if snmp_trap_source %}
+snmp-server trap-source {{ snmp_trap_source }}
+{% endif %}
+{% if snmp_location %}
+snmp-server location {{ snmp_location }}
+{% endif %}
+{% if snmp_contact %}
+snmp-server contact {{ snmp_contact }}
+{% endif %}
+{% for line in monitoring_trap_lines %}
+{{ line }}
+{% endfor %}
+{% for server in ntp_servers %}
+ntp server {{ server }}
+{% endfor %}
+{% for line in monitoring_extra_lines %}
+{{ line }}
+{% endfor %}

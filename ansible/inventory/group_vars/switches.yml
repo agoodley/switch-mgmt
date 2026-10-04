@@ -1,0 +1,31 @@
+---
+# Settings for every switch at every site.  Site-specific values go in the
+# site file (inventory/sites/<site>.yml, under `vars:`), per-switch values in
+# inventory/host_vars/<switch>.yml.  Every setting and its default is listed in
+# roles/switch_mgmt_defaults/defaults/main.yml.
+
+# --- how Ansible logs in ------------------------------------------------------------
+ansible_connection: ansible.netcommon.network_cli
+ansible_network_os: cisco.ios.ios
+ansible_user: "{{ lookup('ansible.builtin.env', 'NET_USERNAME') }}"
+ansible_password: "{{ lookup('ansible.builtin.env', 'NET_PASSWORD') }}"
+ansible_become: true
+ansible_become_method: ansible.netcommon.enable
+# Leave NET_ENABLE_SECRET empty if your account logs straight in at privilege 15.
+ansible_become_password: "{{ lookup('ansible.builtin.env', 'NET_ENABLE_SECRET') | default(lookup('ansible.builtin.env', 'NET_PASSWORD'), true) }}"
+# paramiko still speaks the SHA-1 key exchanges older Catalyst images need.
+ansible_network_cli_ssh_type: paramiko
+ansible_paramiko_look_for_keys: false
+ansible_command_timeout: 120
+
+# --- spanning-tree policy (uncomment to change the defaults) -----------------------
+# stp_mode: rapid-pvst
+# stp_priority_other: 61440
+# stp_loopguard_default: false
+# stp_portfast_command: spanning-tree portfast edge
+
+# --- monitoring (monitoring_baseline.yml) -------------------------------------------
+# monitoring_host / SNMP_COMMUNITY come from .env; uncomment to pin per site.
+# logging_source_interface: Vlan99
+# snmp_trap_source: Vlan99
+# ntp_servers: [10.0.0.10, 10.0.0.11]

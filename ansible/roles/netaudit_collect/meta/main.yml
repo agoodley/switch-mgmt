@@ -1,0 +1,8 @@
+---
+galaxy_info:
+  author: switch-mgmt
+  description: Collect spanning-tree state from Cisco IOS switches for netaudit
+  license: MIT
+  min_ansible_version: "2.16"
+dependencies:
+  - role: switch_mgmt_defaults

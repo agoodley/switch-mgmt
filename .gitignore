@@ -1,0 +1,22 @@
+# secrets and runtime state
+.env
+data/
+reports/
+backups/
+oxidized/router.json
+lab/.lab_host_key
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.venv/
+build/
+
+# editors
+.idea/
+.vscode/
+*.swp
+.DS_Store

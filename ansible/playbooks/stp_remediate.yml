@@ -1,0 +1,69 @@
+---
+# Audit, plan and apply the spanning-tree fixes.
+#
+#   make plan  SITE=hq     dry run (--check): shows the exact commands per switch
+#   make apply SITE=hq     apply in batches: 1 canary, the root bridges, then 5 at a time
+#
+# The plan is recomputed from a fresh audit every run, so it never acts on
+# stale data.  Review reports/latest/report.html first.
+
+- name: Fresh audit and plan
+  ansible.builtin.import_playbook: stp_audit.yml
+
+- name: Decide what to change
+  hosts: switches
+  gather_facts: false
+  roles:
+    - switch_mgmt_defaults
+  tasks:
+    - name: Load the plan
+      ansible.builtin.set_fact:
+        stp_plan: "{{ lookup('ansible.builtin.file', audit_run_dir ~ '/plan.json') | from_json }}"
+      run_once: true
+
+    - name: Plan warnings
+      ansible.builtin.debug:
+        msg: "{{ stp_plan.warnings }}"
+      run_once: true
+      when: stp_plan.warnings | length > 0
+
+    - name: Nothing to do
+      ansible.builtin.debug:
+        msg: No changes needed.
+      run_once: true
+      when: stp_plan.apply_order | length == 0
+
+    - name: Queue switches in apply order (canary, root bridges, the rest)
+      ansible.builtin.add_host:
+        name: "{{ item }}"
+        groups: stp_apply
+      loop: "{{ stp_plan.apply_order }}"
+      run_once: true
+      changed_when: false
+
+- name: Apply the plan
+  hosts: stp_apply
+  gather_facts: false
+  serial: "{{ apply_batches | default([1, 1, 1, 5]) }}"
+  max_fail_percentage: 0
+  any_errors_fatal: true
+  roles:
+    - stp_apply
+  post_tasks:
+    - name: Pause before the next batch
+      ansible.builtin.pause:
+        prompt: >-
+          Batch done ({{ ansible_play_batch | join(', ') }}). Check LibreNMS / the switches,
+          then press Enter to continue (Ctrl-C then A aborts)
+      when:
+        - confirm_batches | bool
+        - not ansible_check_mode
+        - ansible_play_batch[-1] != (stp_plan.apply_order | last)
+
+    - name: Next step
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'Dry run finished - nothing was changed.' if ansible_check_mode else
+             'Changes applied. Run `make audit` again to confirm the findings are resolved.' }}
+      run_once: true
+      when: ansible_play_batch[-1] == (stp_plan.apply_order | last)

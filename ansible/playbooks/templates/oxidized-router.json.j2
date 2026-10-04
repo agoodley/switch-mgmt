@@ -1,0 +1,15 @@
+{# One object per switch; read by Oxidized's jsonfile source (see oxidized/config.erb). #}
+{% set ns = namespace(first=true) %}
+[
+{% for name in groups['switches'] | default([]) | sort %}
+{%   set hv = hostvars[name] %}
+{%   if hv.oxidized_enabled | default(true) | bool %}
+  {{ "" if ns.first else "," }}{{ {'name': name,
+      'ip': oxidized_ips[name] | default(hv.ansible_host | default(name)),
+      'model': hv.oxidized_model | default('ios'),
+      'group': hv.site | default('default'),
+      'ssh_port': (hv.ansible_port | default(22)) | string} | to_json }}
+{%     set ns.first = false %}
+{%   endif %}
+{% endfor %}
+]

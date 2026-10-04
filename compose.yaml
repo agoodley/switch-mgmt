@@ -1,0 +1,203 @@
+# switch-mgmt: LibreNMS (monitoring, syslog, traps) + Oxidized (config
+# backups) + an Ansible toolbox (audit / fix switches), all in Docker.
+#
+#   make init && make up        start monitoring + backups
+#   make audit SITE=hq          run the toolbox (profile "tools")
+#   make lab-up                 simulated switches for safe testing (profile "lab")
+#
+# All state lives in ./data so the whole stack can be moved by copying the
+# directory (stop it first).  Settings come from .env (see .env.example).
+
+name: switch-mgmt
+
+x-librenms-env: &librenms-env
+  TZ: ${TZ:-UTC}
+  PUID: ${PUID:-1000}
+  PGID: ${PGID:-1000}
+  DB_HOST: db
+  DB_NAME: librenms
+  DB_USER: librenms
+  DB_PASSWORD: ${LIBRENMS_DB_PASSWORD:?set LIBRENMS_DB_PASSWORD in .env}
+  DB_TIMEOUT: "60"
+  MEMORY_LIMIT: 256M
+  MAX_INPUT_VARS: "1000"
+  UPLOAD_MAX_SIZE: 16M
+  OPCACHE_MEM_SIZE: "128"
+  REAL_IP_FROM: 0.0.0.0/32
+  REAL_IP_HEADER: X-Forwarded-For
+  LOG_IP_VAR: remote_addr
+  CACHE_DRIVER: redis
+  SESSION_DRIVER: redis
+  REDIS_HOST: redis
+  LIBRENMS_WEATHERMAP: "false"
+  LIBRENMS_WEATHERMAP_SCHEDULE: "*/5 * * * *"
+  # Set LIBRENMS_LISTEN_IPV6=false on hosts booted with IPv6 disabled
+  # (nginx then logs "socket() [::]:8000 failed (97: Address family not supported)").
+  LISTEN_IPV6: ${LIBRENMS_LISTEN_IPV6:-true}
+
+x-librenms: &librenms
+  image: librenms/librenms:${LIBRENMS_VERSION:-26.9.1.1}
+  cap_add: [NET_ADMIN, NET_RAW]
+  volumes:
+    - ./data/librenms:/data
+    # Settings applied when the database is first created (see librenms/config/)
+    - ./librenms/config:/data/config
+  restart: unless-stopped
+
+services:
+  db:
+    image: mariadb:10.11
+    command:
+      - mysqld
+      - --innodb-file-per-table=1
+      - --lower-case-table-names=0
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - ./data/db:/var/lib/mysql
+    environment:
+      TZ: ${TZ:-UTC}
+      MARIADB_RANDOM_ROOT_PASSWORD: "yes"
+      MARIADB_AUTO_UPGRADE: "1"
+      MYSQL_DATABASE: librenms
+      MYSQL_USER: librenms
+      MYSQL_PASSWORD: ${LIBRENMS_DB_PASSWORD:?set LIBRENMS_DB_PASSWORD in .env}
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.2-alpine
+    environment:
+      TZ: ${TZ:-UTC}
+    restart: unless-stopped
+
+  librenms:
+    <<: *librenms
+    hostname: librenms
+    ports:
+      - "${LIBRENMS_HTTP_BIND:-0.0.0.0}:${LIBRENMS_HTTP_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      <<: *librenms-env
+
+  dispatcher:
+    <<: *librenms
+    hostname: librenms-dispatcher
+    depends_on: [librenms, redis]
+    environment:
+      <<: *librenms-env
+      DISPATCHER_NODE_ID: dispatcher1
+      SIDECAR_DISPATCHER: "1"
+
+  syslogng:
+    <<: *librenms
+    hostname: librenms-syslogng
+    depends_on: [librenms, redis]
+    ports:
+      - "${SYSLOG_BIND:-0.0.0.0}:514:514/udp"
+      - "${SYSLOG_BIND:-0.0.0.0}:514:514/tcp"
+    environment:
+      <<: *librenms-env
+      SIDECAR_SYSLOGNG: "1"
+
+  snmptrapd:
+    <<: *librenms
+    hostname: librenms-snmptrapd
+    depends_on: [librenms, redis]
+    ports:
+      - "${SNMPTRAP_BIND:-0.0.0.0}:162:162/udp"
+      - "${SNMPTRAP_BIND:-0.0.0.0}:162:162/tcp"
+    environment:
+      <<: *librenms-env
+      SIDECAR_SNMPTRAPD: "1"
+
+  oxidized:
+    image: oxidized/oxidized:${OXIDIZED_VERSION:-0.37.0}
+    hostname: oxidized
+    # Render the config from .env, wait for router.json, then start as usual.
+    entrypoint: ["/usr/bin/dumb-init", "--", "/opt/switch-mgmt/start.sh"]
+    command: ["runsvdir", "-P", "/etc/service"]
+    environment:
+      TZ: ${TZ:-UTC}
+      NET_USERNAME: ${NET_USERNAME:-}
+      NET_PASSWORD: ${NET_PASSWORD:-}
+      NET_ENABLE_SECRET: ${NET_ENABLE_SECRET:-}
+      OXIDIZED_INTERVAL: ${OXIDIZED_INTERVAL:-3600}
+    volumes:
+      - ./data/oxidized:/home/oxidized/.config/oxidized
+      - ./oxidized:/etc/switch-mgmt:ro
+      - ./docker/oxidized:/opt/switch-mgmt:ro
+    # The Oxidized web UI has no login: it stays on localhost unless you say otherwise.
+    ports:
+      - "${OXIDIZED_BIND:-127.0.0.1}:${OXIDIZED_PORT:-8888}:8888"
+    restart: unless-stopped
+
+  # Ansible + netaudit.  Run through the Makefile: `make audit SITE=hq`.
+  ansible:
+    build:
+      context: .
+      dockerfile: docker/toolbox/Dockerfile
+      secrets: [extra_ca]
+      args:
+        EXTRA_CA_CERT: ${EXTRA_CA_CERT:-}
+    image: switch-mgmt-toolbox:local
+    profiles: [tools]
+    init: true
+    user: "${PUID:-1000}:${PGID:-1000}"
+    working_dir: /work/ansible
+    environment:
+      TZ: ${TZ:-UTC}
+      NET_USERNAME: ${NET_USERNAME:-}
+      NET_PASSWORD: ${NET_PASSWORD:-}
+      NET_ENABLE_SECRET: ${NET_ENABLE_SECRET:-}
+      SNMP_VERSION: ${SNMP_VERSION:-v2c}
+      SNMP_COMMUNITY: ${SNMP_COMMUNITY:-}
+      SNMP_V3_USER: ${SNMP_V3_USER:-librenms}
+      SNMP_V3_AUTH_PASS: ${SNMP_V3_AUTH_PASS:-}
+      SNMP_V3_PRIV_PASS: ${SNMP_V3_PRIV_PASS:-}
+      MONITORING_HOST: ${MONITORING_HOST:-}
+      LIBRENMS_URL: http://librenms:8000
+      LIBRENMS_API_TOKEN: ${LIBRENMS_API_TOKEN:-}
+      OXIDIZED_URL: http://oxidized:8888
+      LAB_HOST: lab
+    volumes:
+      - .:/work
+
+  # Simulated switches (lab/topology.yml) on ports 2201-2206.
+  lab:
+    image: switch-mgmt-toolbox:local
+    profiles: [lab]
+    hostname: lab
+    init: true
+    user: "${PUID:-1000}:${PGID:-1000}"
+    command: ["netaudit", "lab", "serve", "--topology", "/work/lab/topology.yml"]
+    volumes:
+      - ./lab:/work/lab
+    ports:
+      - "127.0.0.1:2201-2206:2201-2206"
+    # Healthy once all six switches listen (read from /proc: a test connection
+    # would make every check log an SSH handshake error).
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import sys; t = open('/proc/net/tcp').read(); sys.exit(any(f':{p:04X} 00000000:0000 0A' not in t for p in range(2201, 2207)))"
+      interval: 5s
+      timeout: 5s
+      start_period: 30s
+      start_interval: 1s
+      retries: 3
+    restart: unless-stopped
+
+secrets:
+  extra_ca:
+    file: ${EXTRA_CA_CERT:-/dev/null}

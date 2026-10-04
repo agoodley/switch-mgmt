@@ -1,0 +1,62 @@
+---
+# Read-only spanning-tree audit.
+#
+#   make audit SITE=hq                      (all switches of one site)
+#   ansible-playbook playbooks/stp_audit.yml --limit hq-acc-07
+#
+# Writes reports/<run id>/ with report.html, report.md, findings.json, the
+# remediation plan (plan.json, plan/<switch>.cfg) and every raw output under
+# raw/.  reports/latest points to the newest run.
+
+- name: Spanning-tree audit
+  hosts: switches
+  gather_facts: false
+  roles:
+    - switch_mgmt_defaults
+  tasks:
+    - name: Pick a run id
+      ansible.builtin.set_fact:
+        audit_run_id: "{{ run_id | default(lookup('ansible.builtin.pipe', 'date -u +%Y%m%d-%H%M%S')) }}"
+      run_once: true
+
+    - name: Remember where this run is written
+      ansible.builtin.set_fact:
+        audit_run_dir: "{{ reports_root }}/{{ audit_run_id }}"
+
+    - name: Create the run directory
+      ansible.builtin.file:
+        path: "{{ audit_run_dir }}/raw"
+        state: directory
+        mode: "0755"
+      run_once: true
+      delegate_to: localhost
+      check_mode: false
+
+    - name: Collect spanning-tree state
+      ansible.builtin.include_role:
+        name: netaudit_collect
+
+    - name: Analyse and write the report
+      ansible.builtin.command:
+        argv: [netaudit, analyze, "{{ audit_run_dir }}", --title, "STP audit - {{ ansible_limit | default('all sites') }}"]
+      register: netaudit_analysis
+      changed_when: false
+      run_once: true
+      delegate_to: localhost
+      check_mode: false
+
+    - name: Point reports/latest at this run
+      ansible.builtin.file:
+        src: "{{ audit_run_id }}"
+        dest: "{{ reports_root }}/latest"
+        state: link
+        force: true
+      run_once: true
+      delegate_to: localhost
+      check_mode: false
+
+    # Paths relative to the project directory read the same on the host and in Docker.
+    - name: Summary
+      ansible.builtin.debug:
+        msg: "{{ netaudit_analysis.stdout_lines | map('replace', switch_mgmt_root ~ '/', '') | list + ['Latest report: reports/latest/report.html'] }}"
+      run_once: true

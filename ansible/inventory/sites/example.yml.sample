@@ -1,0 +1,33 @@
+---
+# One file per site.  Copy this file to <site>.yml (files ending in .sample are
+# ignored), or generate one from CDP:
+#
+#   make discover SITE=hq SEED=10.10.0.1
+#
+# Every site group must sit under `switches` so the connection settings in
+# group_vars/switches.yml apply.  Target a site with `make audit SITE=hq`
+# (= ansible-playbook ... --limit hq).
+#
+# stp_role decides the bridge priority the remediation plan sets:
+#   root_primary   -> stp_priority_root_primary   (4096)
+#   root_secondary -> stp_priority_root_secondary (8192)
+#   access         -> stp_priority_other          (not managed by default)
+switches:
+  children:
+    example:
+      vars:
+        site: example
+        # monitoring_host: 10.10.99.5     # where this site's switches send syslog/traps
+        # logging_source_interface: Vlan99
+      hosts:
+        ex-core-01:
+          ansible_host: 192.0.2.1
+          stp_role: root_primary
+        ex-core-02:
+          ansible_host: 192.0.2.2
+          stp_role: root_secondary
+        ex-acc-01:
+          ansible_host: 192.0.2.11
+        ex-acc-02:
+          ansible_host: 192.0.2.12
+          # stp_edge_exclude: [Gi1/0/24]   # e.g. a port with a small switch you cannot remove yet

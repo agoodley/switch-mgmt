@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netaudit"
+version = "0.1.0"
+description = "Spanning-tree audit, remediation planning and lab simulator for Cisco IOS/IOS-XE switches"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+  "jinja2>=3.1",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# CDP discovery crawler.  paramiko 5 dropped the SHA-1 key exchanges and
+# ssh-rsa host keys that older Catalyst 2960/3560/3750 images still need.
+discover = ["netmiko>=4.5", "paramiko>=4.0,<5.0"]
+# Fake SSH switches for the lab.
+lab = ["paramiko>=4.0,<5.0"]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+netaudit = "netaudit.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+netaudit = ["report/templates/*.j2"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501", "B905"]

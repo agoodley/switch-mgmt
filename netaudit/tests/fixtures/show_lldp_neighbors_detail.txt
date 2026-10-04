@@ -1,0 +1,93 @@
+------------------------------------------------
+Local Intf: Gi1/0/50
+Chassis id: 00a3.d1f4.2280
+Port id: Gi1/0/3
+Port Description: GigabitEthernet1/0/3
+System Name: core-02.lab.local
+
+System Description: 
+Cisco IOS Software [Cupertino], Catalyst L3 Switch Software (CAT9K_IOSXE), Version 17.9.4a, RELEASE SOFTWARE (fc3)
+Technical Support: http://www.cisco.com/techsupport
+Copyright (c) 1986-2023 by Cisco Systems, Inc.
+Compiled Fri 20-Oct-23 10:44 by mcpre
+
+Time remaining: 104 seconds
+System Capabilities: B,R
+Enabled Capabilities: B,R
+Management Addresses:
+    IP: 10.99.0.2
+Auto Negotiation - not supported
+Physical media capabilities - not advertised
+Media Attachment Unit type - not advertised
+Vlan ID: 1
+
+------------------------------------------------
+Local Intf: Gi1/0/12
+Chassis id: 0011.2233.4466
+Port id: 0011.2233.4466
+Port Description: eth0
+System Name: AP-2
+
+System Description: 
+Cisco AP Software, ap3g3-k9w8 Version: 17.9.4.27
+Technical Support: http://www.cisco.com/techsupport
+
+Time remaining: 95 seconds
+System Capabilities: B,R
+Enabled Capabilities: B,R
+Management Addresses:
+    IP: 10.30.0.22
+Vlan ID: - not advertised
+
+------------------------------------------------
+Local Intf: Gi1/0/13
+Chassis id: 10.20.0.16
+Port id: 001122334477:P1
+Port Description: SW PORT
+System Name: SEP001122334477
+
+System Description: 
+Cisco IP Phone 7841, V3, sip78xx.14-2-1-0001-14
+
+Time remaining: 160 seconds
+System Capabilities: B,T
+Enabled Capabilities: B,T
+Management Addresses:
+    IP: 10.20.0.16
+Vlan ID: - not advertised
+
+------------------------------------------------
+Local Intf: Gi1/0/14
+Chassis id: aabb.cc00.0100
+Port id: 24
+Port Description: Port 24
+System Name: - not advertised
+
+System Description: 
+HPE OfficeConnect Switch 1820 24G, PD.02.13
+
+Time remaining: 109 seconds
+System Capabilities: B
+Enabled Capabilities: B
+Management Addresses - not advertised
+Vlan ID: 1
+
+------------------------------------------------
+Local Intf: Gi1/0/49
+Chassis id: 00a3.d1f4.1180
+Port id: Gi1/0/3
+Port Description: GigabitEthernet1/0/3
+System Name: core-01.lab.local
+
+System Description: 
+Cisco IOS Software [Cupertino], Catalyst L3 Switch Software (CAT9K_IOSXE), Version 17.9.4a, RELEASE SOFTWARE (fc3)
+
+Time remaining: 101 seconds
+System Capabilities: B,R
+Enabled Capabilities: B,R
+Management Addresses:
+    IP: 10.99.0.1
+Vlan ID: 1
+
+
+Total entries displayed: 5

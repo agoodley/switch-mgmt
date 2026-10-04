@@ -1,0 +1,79 @@
+Building configuration...
+
+Current configuration : 4211 bytes
+!
+! Last configuration change at 04:30:01 UTC Sun Oct 4 2026 by netops
+!
+version 15.2
+no service pad
+hostname acc-02
+!
+banner motd ^C
+Authorised access only.
+spanning-tree mode mst
+interface GigabitEthernet9/9/9
+^C
+!
+spanning-tree mode rapid-pvst
+spanning-tree portfast edge default
+spanning-tree portfast edge bpduguard default
+spanning-tree loopguard default
+spanning-tree extend system-id
+spanning-tree pathcost method long
+spanning-tree uplinkfast
+no spanning-tree vlan 999
+spanning-tree vlan 1,10,20 priority 8192
+spanning-tree vlan 99 priority 12288
+!
+spanning-tree mst configuration
+ name CAMPUS
+ revision 3
+ instance 1 vlan 10, 20
+!
+errdisable recovery cause bpduguard
+errdisable recovery cause psecure-violation
+errdisable recovery interval 600
+!
+interface Port-channel1
+ description Core bundle
+ switchport mode trunk
+ switchport trunk native vlan 99
+ switchport trunk allowed vlan 10,20,99
+!
+interface GigabitEthernet1/0/1
+ description User port
+ switchport access vlan 10
+ switchport mode access
+ switchport voice vlan 20
+ spanning-tree portfast edge
+ spanning-tree bpduguard enable
+!
+interface GigabitEthernet1/0/2
+ switchport access vlan 10
+ switchport mode access
+ spanning-tree portfast disable
+ spanning-tree bpduguard disable
+ shutdown
+!
+interface GigabitEthernet1/0/3
+ switchport mode trunk
+ switchport trunk allowed vlan 1-10
+ switchport trunk allowed vlan add 20,30-40
+ switchport nonegotiate
+ spanning-tree portfast edge trunk
+ spanning-tree guard root
+!
+interface GigabitEthernet1/0/4
+ no switchport
+ ip address 192.0.2.1 255.255.255.252
+!
+interface GigabitEthernet1/0/5
+ spanning-tree bpdufilter enable
+ spanning-tree guard loop
+ spanning-tree link-type point-to-point
+!
+interface TenGigabitEthernet1/1/1
+ switchport mode trunk
+ channel-group 1 mode active
+!
+end

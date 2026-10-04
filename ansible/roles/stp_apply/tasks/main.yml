@@ -1,0 +1,157 @@
+---
+# Apply the analyser's plan to one switch: back up, push the non-disruptive
+# part, then the part that makes spanning tree recalculate, verify, and only
+# then save.  If verification fails the running-config is left unsaved (a
+# reload brings back the old config) and the rollout stops.
+
+- name: Load the plan for this switch
+  ansible.builtin.set_fact:
+    stp_host_plan: "{{ (lookup('ansible.builtin.file', audit_run_dir ~ '/plan.json') | from_json).hosts[inventory_hostname] }}"
+
+- name: Show what is about to change
+  ansible.builtin.debug:
+    msg: >-
+      {{ ['#' ~ stp_host_plan.order ~ ' ' ~ inventory_hostname ~ ': ' ~ stp_host_plan.summary]
+         + (stp_host_plan.skipped | map(attribute='port') | list | length > 0)
+           | ternary(['skipping ports: ' ~ (stp_host_plan.skipped | map(attribute='port') | join(', '))], []) }}
+
+- name: Refuse to continue when the plan has blockers
+  ansible.builtin.assert:
+    that: stp_host_plan.blockers | length == 0
+    fail_msg: "{{ stp_host_plan.blockers }}"
+    quiet: true
+
+- name: Pre-check - interface status
+  cisco.ios.ios_command:
+    commands: show interfaces status
+  register: stp_pre_status
+  check_mode: false
+
+- name: Back up the running-config
+  cisco.ios.ios_config:
+    backup: true
+    backup_options:
+      dir_path: "{{ backups_root }}/{{ site }}"
+      filename: "{{ inventory_hostname }}-{{ audit_run_id }}.cfg"
+  when: not ansible_check_mode
+
+- name: Apply, verify and save
+  block:
+    - name: Edge ports and protections (no spanning-tree recalculation)
+      cisco.ios.ios_config:
+        content: "{{ stp_host_plan.config_safe }}"
+        match: line
+      when: stp_host_plan.config_safe | length > 0
+      register: stp_safe_result
+
+    - name: Mode / priority / path cost (spanning tree recalculates)
+      cisco.ios.ios_config:
+        content: "{{ stp_host_plan.config_disruptive }}"
+        match: line
+      vars:
+        ansible_command_timeout: 180
+      when: stp_host_plan.config_disruptive | length > 0
+      register: stp_disruptive_result
+
+    - name: Commands {{ 'that would be sent' if ansible_check_mode else 'sent' }}
+      ansible.builtin.debug:
+        msg: "{{ (stp_safe_result.updates | default([])) + (stp_disruptive_result.updates | default([])) }}"
+      when: stp_safe_result is changed or stp_disruptive_result is changed
+
+    - name: Let spanning tree converge
+      ansible.builtin.wait_for:
+        timeout: "{{ stp_converge_seconds | int }}"
+      delegate_to: localhost
+      when:
+        - stp_disruptive_result is changed
+        - not ansible_check_mode
+
+    - name: Post-check - interface status
+      cisco.ios.ios_command:
+        commands: show interfaces status
+      register: stp_post_status
+      check_mode: false
+      when: not ansible_check_mode
+
+    - name: Compare with the pre-check
+      ansible.builtin.set_fact:
+        stp_new_errdisabled: >-
+          {{ stp_after | dict2items | selectattr('value', 'equalto', 'err-disabled') | map(attribute='key')
+             | difference(stp_before | dict2items | selectattr('value', 'equalto', 'err-disabled') | map(attribute='key')) }}
+        stp_down_ports: >-
+          {{ stp_host_plan.verify_ports | reject('in', stp_after | dict2items | selectattr('value', 'equalto', 'connected')
+             | map(attribute='key') | list) | list }}
+      vars:
+        stp_before: "{{ stp_pre_status.stdout[0] | ios_interfaces_status }}"
+        stp_after: "{{ stp_post_status.stdout[0] | ios_interfaces_status }}"
+      when: not ansible_check_mode
+
+    - name: Verify uplinks are up and nothing new is err-disabled
+      ansible.builtin.assert:
+        that:
+          - stp_new_errdisabled | length == 0
+          - stp_down_ports | length == 0
+        fail_msg: >-
+          Post-check failed on {{ inventory_hostname }}:
+          newly err-disabled {{ stp_new_errdisabled }}, no longer connected {{ stp_down_ports }}
+        success_msg: "{{ inventory_hostname }}: {{ stp_host_plan.verify_ports | length }} uplink(s) up, no new err-disabled ports"
+      when: not ansible_check_mode
+
+    - name: Save the configuration
+      cisco.ios.ios_config:
+        save_when: modified
+      when: not ansible_check_mode
+
+  rescue:
+    - name: Remember what failed
+      ansible.builtin.set_fact:
+        stp_failure: "{{ ansible_failed_result.msg | default(ansible_failed_result) }}"
+        stp_rollback_status: not attempted
+
+    - name: Roll back automatically
+      when:
+        - stp_auto_rollback | bool
+        - not ansible_check_mode
+      block:
+        - name: Push the rollback commands
+          cisco.ios.ios_config:
+            content: "{{ stp_host_plan.rollback }}"
+            match: none
+
+        # BPDU Guard shut these ports; removing it does not bring them back.
+        - name: Re-enable ports this change err-disabled
+          cisco.ios.ios_config:
+            lines:
+              - shutdown
+              - no shutdown
+            parents: "interface {{ item }}"
+            match: none
+          loop: "{{ stp_new_errdisabled | default([]) }}"
+
+        - name: Note that the rollback was pushed
+          ansible.builtin.set_fact:
+            stp_rollback_status: pushed
+      rescue:
+        - name: Note that the rollback failed
+          ansible.builtin.set_fact:
+            stp_rollback_status: "failed ({{ ansible_failed_result.msg | default('unknown error') }})"
+
+    - name: Stop the rollout
+      ansible.builtin.fail:
+        msg: |
+          {{ inventory_hostname }} failed: {{ stp_failure }}
+          The running-config was NOT saved, so a reload restores the previous config.
+          {% if stp_rollback_status == 'pushed' %}
+          Rollback commands were pushed{{ ' and ' ~ (stp_new_errdisabled | join(', ')) ~ ' re-enabled' if stp_new_errdisabled | default([]) else '' }}:
+          {% elif stp_rollback_status is match('failed') %}
+          The automatic rollback {{ stp_rollback_status }}. To undo by hand, paste:
+          {% else %}
+          To undo by hand, paste:
+          {% endif %}
+          {{ stp_host_plan.rollback | trim }}
+          {% for port in stp_new_errdisabled | default([]) if stp_rollback_status != 'pushed' %}
+          interface {{ port }}
+           shutdown
+           no shutdown
+          {% endfor %}
+          Backup: {{ backups_root }}/{{ site }}/{{ inventory_hostname }}-{{ audit_run_id }}.cfg

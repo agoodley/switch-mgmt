@@ -1,0 +1,68 @@
+---
+# Point every switch at LibreNMS: SNMP for polling, syslog and SNMP traps for
+# events (spanning-tree messages arrive within seconds), timestamps and NTP so
+# log lines from different switches line up.
+#
+#   make monitoring SITE=hq CHECK=1     dry run
+#   make monitoring SITE=hq             apply (1 switch, then 25 %, then the rest)
+#
+# Uses MONITORING_HOST and SNMP_COMMUNITY (or SNMP_V3_*) from .env; see
+# roles/switch_mgmt_defaults/defaults/main.yml for every knob.
+
+- name: Configure SNMP, syslog and traps towards LibreNMS
+  hosts: switches
+  gather_facts: false
+  serial: "{{ monitoring_batches | default([1, '25%', '100%']) }}"
+  max_fail_percentage: 0
+  any_errors_fatal: true
+  roles:
+    - switch_mgmt_defaults
+  tasks:
+    - name: Check the settings
+      ansible.builtin.assert:
+        that:
+          - monitoring_host | length > 0
+          - snmp_version in ['v2c', 'v3']
+          - snmp_version != 'v2c' or snmp_community | length > 0
+          - snmp_version != 'v3' or (snmp_v3_auth_pass | length >= 8 and snmp_v3_priv_pass | length >= 8)
+        fail_msg: >-
+          Set MONITORING_HOST and SNMP_COMMUNITY (v2c) or SNMP_V3_AUTH_PASS / SNMP_V3_PRIV_PASS
+          (v3, at least 8 characters) in .env
+        quiet: true
+
+    - name: Build the configuration
+      ansible.builtin.set_fact:
+        monitoring_lines: "{{ lookup('ansible.builtin.template', 'monitoring.cfg.j2').splitlines() | map('trim') | select | list }}"
+
+    - name: Apply logging, SNMP and trap settings
+      cisco.ios.ios_config:
+        lines: "{{ monitoring_lines }}"
+        match: line
+      register: monitoring_result
+
+    - name: Commands {{ 'that would be sent' if ansible_check_mode else 'sent' }}
+      ansible.builtin.debug:
+        msg: "{{ monitoring_result.updates | default([]) | map('regex_replace', '(community|version 2c|priv aes 128|auth sha) \\S+', '\\1 ********') | list }}"
+      when: monitoring_result.updates | default([]) | length > 0
+
+    # SNMPv3 users never show up in the running-config, so check `show snmp user`.
+    - name: Look for the SNMPv3 user
+      cisco.ios.ios_command:
+        commands: show snmp user
+      register: snmp_users
+      check_mode: false
+      when: snmp_version == 'v3'
+
+    - name: Create the SNMPv3 user
+      cisco.ios.ios_config:
+        lines:
+          - "snmp-server user {{ snmp_v3_user }} {{ snmp_v3_group }} v3 auth sha {{ snmp_v3_auth_pass }} priv aes 128 {{ snmp_v3_priv_pass }}"
+      no_log: true
+      when:
+        - snmp_version == 'v3'
+        - "('User name: ' ~ snmp_v3_user) not in snmp_users.stdout[0]"
+
+    - name: Save the configuration
+      cisco.ios.ios_config:
+        save_when: modified
+      when: not ansible_check_mode

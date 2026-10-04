@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }}</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --fg: #1d2433; --muted: #5d6779; --border: #dde1e8; --soft: #eef1f5;
+  --accent: #2557d6; --accent-soft: #e5ecfd; --ok: #1a7f4b; --ok-soft: #e3f4ea; --warn: #b25e09; --warn-soft: #fdf1e1;
+  --danger: #c4321f; --danger-soft: #fce8e6; --edge: #7b8494; --code-bg: #f3f5f8;
+  --sev-critical: #7a1324; --sev-high: #d0381f; --sev-medium: #d98a08; --sev-low: #2e7dd8; --sev-info: #8a94a6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11151c; --panel: #181e27; --fg: #e3e8ef; --muted: #9aa5b5; --border: #2b3442; --soft: #202834;
+    --accent: #6f9bff; --accent-soft: #1f2d4d; --ok: #4cc38a; --ok-soft: #173326; --warn: #f0a547; --warn-soft: #3a2a14;
+    --danger: #f2705d; --danger-soft: #3d1e1a; --edge: #8b95a5; --code-bg: #121820;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11151c; --panel: #181e27; --fg: #e3e8ef; --muted: #9aa5b5; --border: #2b3442; --soft: #202834;
+  --accent: #6f9bff; --accent-soft: #1f2d4d; --ok: #4cc38a; --ok-soft: #173326; --warn: #f0a547; --warn-soft: #3a2a14;
+  --danger: #f2705d; --danger-soft: #3d1e1a; --edge: #8b95a5; --code-bg: #121820;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+.wrap { max-width: 1240px; margin: 0 auto; padding: 0 16px 64px; }
+header.top { background: var(--panel); border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+header.top .wrap { padding-top: 20px; padding-bottom: 16px; display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: baseline; justify-content: space-between; }
+h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+h2 { font-size: 17px; margin: 32px 0 10px; display: flex; align-items: baseline; gap: 10px; }
+h2 .hint { font-size: 13px; font-weight: 400; color: var(--muted); }
+h3 { font-size: 14px; margin: 18px 0 8px; }
+.meta { color: var(--muted); font-size: 13px; }
+nav.toc { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.tile { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.tile .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+.tile .v { font-size: 22px; font-weight: 650; margin-top: 2px; }
+.tile .s { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+.tile.bad { border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
+.tile.good { border-color: color-mix(in srgb, var(--ok) 45%, var(--border)); }
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 4px 0; overflow-x: auto; }
+.panel.pad { padding: 14px 16px; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 7px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: none; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 650; color: #fff; text-transform: uppercase; letter-spacing: .03em; white-space: nowrap; }
+.sev-critical { background: var(--sev-critical); } .sev-high { background: var(--sev-high); }
+.sev-medium { background: var(--sev-medium); color: #1d1607; } .sev-low { background: var(--sev-low); } .sev-info { background: var(--sev-info); }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border); background: var(--soft); white-space: nowrap; }
+.pill.ok { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
+.pill.bad { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
+.pill.warn { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+.pill.plan { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.muted { color: var(--muted); }
+.actions { counter-reset: step; list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.actions li { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px 10px 46px; position: relative; }
+.actions li::before { counter-increment: step; content: counter(step); position: absolute; left: 12px; top: 10px; width: 22px; height: 22px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 12px; display: grid; place-items: center; }
+.actions li.manual::before { background: var(--warn-soft); color: var(--warn); }
+.actions .t { font-weight: 600; }
+.finding { border-bottom: 1px solid var(--border); padding: 10px 14px; display: grid; grid-template-columns: 92px 1fr; gap: 4px 12px; }
+.finding:last-child { border-bottom: none; }
+.finding .title { font-weight: 600; }
+.finding .where { color: var(--muted); font-size: 12.5px; }
+.finding .detail { font-size: 13px; grid-column: 2; word-break: break-word; }
+.finding .rec { font-size: 13px; grid-column: 2; color: var(--muted); }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.filters button { font: inherit; font-size: 12.5px; border: 1px solid var(--border); background: var(--panel); color: var(--fg); border-radius: 999px; padding: 3px 12px; cursor: pointer; }
+.filters button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+details { border-bottom: 1px solid var(--border); }
+details:last-child { border-bottom: none; }
+details > summary { cursor: pointer; padding: 9px 14px; list-style-position: inside; }
+details > summary:hover { background: var(--soft); }
+details .body { padding: 4px 14px 14px; }
+pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; overflow-x: auto; margin: 6px 0; max-height: 420px; }
+.copy { float: right; font-size: 12px; border: 1px solid var(--border); background: var(--panel); color: var(--fg); border-radius: 6px; padding: 1px 8px; cursor: pointer; }
+.diagram { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 14px; overflow: auto; max-height: 720px; }
+.diagram .cap { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: baseline; margin-bottom: 8px; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12.5px; color: var(--muted); margin: 0 0 10px; }
+.legend span::before { content: ""; display: inline-block; width: 22px; height: 0; vertical-align: middle; margin-right: 6px; border-top: 2px solid var(--edge); }
+.legend span.blk::before { border-top: 2px dashed var(--danger); }
+.legend span.mark::before { width: 8px; height: 8px; border: 2px solid var(--danger); border-radius: 50%; margin-right: 6px; }
+svg.stp-tree { display: block; font-family: system-ui, sans-serif; }
+svg.stp-tree .edge { fill: none; }
+svg.stp-tree .edge.fwd { stroke: var(--edge); stroke-width: 1.6; }
+svg.stp-tree .edge.blk { stroke: var(--danger); stroke-width: 1.6; stroke-dasharray: 5 4; }
+svg.stp-tree .node rect { fill: var(--panel); stroke: var(--border); stroke-width: 1.2; }
+svg.stp-tree .node .label { fill: var(--fg); font-size: 12.5px; font-weight: 600; dominant-baseline: middle; }
+svg.stp-tree .node .sub { fill: var(--muted); font-size: 10.5px; dominant-baseline: middle; }
+svg.stp-tree .node.root rect { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2; }
+svg.stp-tree .node.root .sub { fill: var(--accent); font-weight: 700; }
+svg.stp-tree .node.expected:not(.root) rect { stroke: var(--warn); stroke-width: 2; stroke-dasharray: 4 3; }
+svg.stp-tree .node.external rect { fill: var(--soft); stroke-dasharray: 3 3; }
+svg.stp-tree .blkmark circle { fill: var(--panel); stroke: var(--danger); stroke-width: 2; }
+.empty { padding: 14px; color: var(--muted); }
+footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
+@media (max-width: 640px) { .finding { grid-template-columns: 1fr; } .finding .detail, .finding .rec { grid-column: 1; } }
+@media print { .filters, .copy { display: none; } details { break-inside: avoid; } body { background: #fff; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <div>
+      <h1>{{ title }}</h1>
+      <div class="meta">Generated {{ generated_at }} · {{ total_switches }} switch{{ "es" if total_switches != 1 }}{% if unreachable %} · <span style="color:var(--danger)">{{ unreachable|length }} unreachable</span>{% endif %}</div>
+    </div>
+    <nav class="toc">
+      <a href="#todo">To do</a><a href="#roots">Root bridges</a><a href="#trees">Spanning trees</a><a href="#tc">Topology changes</a><a href="#findings">Findings</a><a href="#plan">Plan</a><a href="#switches">Switches</a>
+    </nav>
+  </div>
+</header>
+<main class="wrap">
+
+<section class="tiles" aria-label="Summary">
+  {% set bad = counts.critical + counts.high %}
+  <div class="tile {{ 'bad' if bad else 'good' }}"><div class="k">Critical / high findings</div><div class="v">{{ counts.critical }} / {{ counts.high }}</div><div class="s">{{ counts.medium }} medium · {{ counts.low }} low · {{ counts.info }} info</div></div>
+  {% set wrong = roots | selectattr("status", "in", ["wrong", "split"]) | list %}
+  <div class="tile {{ 'bad' if wrong else 'good' }}"><div class="k">Root bridge</div>
+    {% if roots %}<div class="v">{{ roots[0].root }}</div><div class="s">{% if wrong %}VLAN {{ wrong | map(attribute="vlans") | join(",") }} not on {{ wrong[0].expected or "the intended root" }}{% elif roots[0].status == 'undefined' %}no intended root set (stp_role){% else %}as intended{% endif %}</div>{% else %}<div class="v">-</div>{% endif %}
+  </div>
+  <div class="tile {{ 'bad' if modes|length > 1 else 'good' }}"><div class="k">STP mode</div><div class="v">{{ modes|length }} mode{{ "s" if modes|length != 1 }}</div><div class="s">{% for m, n in modes %}{{ m }} ×{{ n }}{{ " · " if not loop.last }}{% endfor %}</div></div>
+  {% if max_current is not none %}
+  <div class="tile {{ 'bad' if max_current >= 24 else 'good' }}"><div class="k">Topology changes</div><div class="v">{{ "%.0f"|format(max_current) }}/day</div><div class="s">worst VLAN since the previous audit · {{ "%.0f"|format(max_rate) }}/day since boot</div></div>
+  {% else %}
+  <div class="tile {{ 'bad' if max_rate >= 24 else 'good' }}"><div class="k">Topology changes</div><div class="v">{{ "%.0f"|format(max_rate) }}/day</div><div class="s">worst VLAN, averaged since the switch booted</div></div>
+  {% endif %}
+  <div class="tile"><div class="k">Planned changes</div><div class="v">{{ plan.hosts|length }} switch{{ "es" if plan.hosts|length != 1 }}</div><div class="s">{{ plan.total_lines }} config lines{% if plan.blocked_hosts %} · {{ plan.blocked_hosts|length }} blocked{% endif %}</div></div>
+</section>
+
+<h2 id="todo">What to do <span class="hint">blue = handled by the remediation plan, amber = needs a person</span></h2>
+{% if actions %}
+<ol class="actions">
+  {% for a in actions %}<li class="{{ 'planned' if a.planned else 'manual' }}"><span class="t">{{ a.title }}</span> {% if a.planned %}<span class="pill plan">in plan</span>{% else %}<span class="pill warn">manual</span>{% endif %}<div class="muted">{{ a.text | code }}</div></li>
+  {% endfor %}
+</ol>
+<p class="muted">Review the plan below, then run <code>make plan</code> (dry run with diffs against the live config) and <code>make apply</code> (one canary switch first, then the root bridges, then the rest in batches).</p>
+{% else %}<div class="panel pad">Nothing to do - spanning tree looks healthy.</div>{% endif %}
+
+<h2 id="roots">Root bridges <span class="hint">per VLAN, grouped</span></h2>
+<div class="panel">
+<table>
+  <thead><tr>{% if sites|length > 1 %}<th>Site</th>{% endif %}<th>VLANs</th><th>Root bridge</th><th class="num">Priority</th><th>Intended root</th><th>Status</th></tr></thead>
+  <tbody>
+  {% for r in roots %}
+  <tr>{% if sites|length > 1 %}<td>{{ r.site }}</td>{% endif %}<td class="mono">{{ r.vlans }}</td><td><strong>{{ r.root }}</strong></td>
+    <td class="num">{{ r.priority if r.priority is not none else "?" }}{% if r.default_priority %} <span class="pill warn">default</span>{% endif %}</td>
+    <td>{{ r.expected or "—" }}</td>
+    <td>{% if r.status == "ok" %}<span class="pill ok">as intended</span>{% elif r.status == "wrong" %}<span class="pill bad">wrong root</span>{% elif r.status == "split" %}<span class="pill bad">switches disagree</span>{% else %}<span class="pill warn">no intended root</span>{% endif %}</td></tr>
+  {% else %}<tr><td colspan="6" class="empty">No spanning-tree data.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+
+<h2 id="trees">Spanning trees <span class="hint">each distinct tree once; hover for ports and priorities</span></h2>
+<div class="legend"><span>forwarding link (towards the root)</span><span class="blk">blocked link</span><span class="mark">blocking port</span></div>
+{% for d in diagrams %}
+<div class="diagram">
+  <div class="cap"><strong>{% if sites|length > 1 %}{{ d.site }} · {% endif %}VLAN {{ d.vlans }}</strong><span class="muted">root {{ d.root }}{% if d.expected and d.expected != d.root %} · intended {{ d.expected }}{% endif %} · {{ d.switches }} switches · {{ d.blocked }} blocked port(s)</span></div>
+  {% if d.svg %}{{ d.svg | safe }}{% else %}<div class="empty">Too large to draw.</div>{% endif %}
+  {% if d.more %}<p class="muted">{{ d.more }} more distinct tree(s) not drawn.</p>{% endif %}
+</div>
+{% else %}<div class="panel pad muted">No spanning-tree data.</div>{% endfor %}
+
+<h2 id="tc">Topology changes <span class="hint">followed hop by hop to where they start{% if previous_run %} · compared with the audit of {{ previous_run }}{% endif %}</span></h2>
+<div class="panel">
+<table>
+  <thead><tr>{% if sites|length > 1 %}<th>Site</th>{% endif %}<th>VLAN</th><th class="num">Changes</th><th class="num">Per day</th>{% if previous_run %}<th class="num">Since last audit</th>{% endif %}<th class="num">Last</th><th>Starts at</th><th>Trail</th></tr></thead>
+  <tbody>
+  {% for r in tc_rows if r.active %}
+  <tr>{% if sites|length > 1 %}<td>{{ r.site }}</td>{% endif %}<td>{{ r.vlan }}</td><td class="num">{{ r.count if r.count is not none else "?" }}</td>
+    <td class="num">{% if r.rate is not none %}{% if r.rate >= 240 %}<span class="pill bad">{{ "%.0f"|format(r.rate) }}</span>{% elif r.rate >= 24 %}<span class="pill warn">{{ "%.0f"|format(r.rate) }}</span>{% else %}{{ "%.1f"|format(r.rate) }}{% endif %}{% else %}?{% endif %}</td>
+    {% if previous_run %}<td class="num">{% if r.delta is not none %}{{ r.delta }} in {{ r.window | duration }}{% else %}—{% endif %}</td>{% endif %}
+    <td class="num">{{ r.last | duration }}</td>
+    <td><strong>{{ r.origin }}</strong><div class="muted">{{ {"access-port": "access port", "switch-link": "switch link" ~ (" to " ~ r.neighbor if r.neighbor else ""), "external": "from " ~ (r.neighbor or "?"), "loop": "trail loops", "unknown": "unknown"}[r.kind] }}{% if not r.consistent %} · timestamps disagree{% endif %}</div></td>
+    <td class="mono" style="font-size:12px">{{ r.path }}</td></tr>
+  {% else %}<tr><td colspan="7" class="empty">{{ "No VLAN has more than one change a day or a change in the last 24 hours." if tc_rows else "No topology-change counters collected." }}</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+{% set quiet = tc_rows | rejectattr("active") | list %}
+{% if quiet %}<p class="muted">{{ quiet|length }} quiet VLAN(s) not shown (under one change a day, none in the last 24 h): {% for r in quiet %}{{ r.vlan }}{{ ", " if not loop.last }}{% endfor %}.</p>{% endif %}
+
+<h2 id="findings">Findings <span class="hint">{{ findings|length }} total</span></h2>
+<div class="filters" role="group" aria-label="Filter by severity">
+  <button type="button" data-filter="all" aria-pressed="true">All</button>
+  {% for s in severities %}{% if counts[s] %}<button type="button" data-filter="{{ s }}" aria-pressed="false">{{ s|capitalize }} ({{ counts[s] }})</button>{% endif %}{% endfor %}
+</div>
+<div class="panel" id="finding-list">
+{% for f in findings %}
+  <div class="finding" data-sev="{{ f.severity }}">
+    <div><span class="badge sev-{{ f.severity }}">{{ f.severity }}</span></div>
+    <div><span class="title">{{ f.title }}</span> {% if f.planned %}<span class="pill plan">fixed by plan</span>{% endif %}
+      <div class="where">{{ f.host or ("site " ~ f.site) }} · {{ f.category }}{% if f.vlans %} · VLAN {{ f.vlans | vlans }}{% endif %}</div></div>
+    {% if f.detail %}<div class="detail">{{ f.detail | code }}</div>{% endif %}
+    {% if f.recommendation %}<div class="rec">→ {{ f.recommendation | code }}</div>{% endif %}
+  </div>
+{% else %}<div class="empty">No findings.</div>{% endfor %}
+</div>
+
+<h2 id="plan">Remediation plan <span class="hint">applied in this order by <code>make apply</code></span></h2>
+{% if plan.warnings %}<div class="panel pad" style="border-color:var(--warn)">{% for w in plan.warnings %}<div>⚠ {{ w | code }}</div>{% endfor %}</div>{% endif %}
+<div class="panel">
+{% for h in plan.hosts %}
+  <details>
+    <summary><strong>{{ h.order }}. {{ h.host }}</strong> <span class="muted">({{ h.role }})</span> — {{ h.summary }}{% if h.disruptive %} <span class="pill warn">STP recalculates</span>{% endif %}{% if h.blockers %} <span class="pill bad">blocked</span>{% endif %}</summary>
+    <div class="body">
+      {% for b in h.blockers %}<div style="color:var(--danger)">Blocked: {{ b | code }}</div>{% endfor %}
+      {% if h.config_safe %}<h3>Non-disruptive <button class="copy" type="button">Copy</button></h3><pre>{{ h.config_safe }}</pre>{% endif %}
+      {% if h.config_disruptive %}<h3>Recalculates spanning tree <button class="copy" type="button">Copy</button></h3><pre>{{ h.config_disruptive }}</pre>{% endif %}
+      {% if h.skipped %}<h3>Skipped ports</h3><ul>{% for s in h.skipped %}<li><code>{{ s.port }}</code> — {{ s.reason | code }}</li>{% endfor %}</ul>{% endif %}
+      {% for n in h.notes %}<p class="muted">{{ n | code }}</p>{% endfor %}
+      <details><summary class="muted">Rollback commands</summary><div class="body"><pre>{{ h.rollback }}</pre></div></details>
+    </div>
+  </details>
+{% else %}<div class="empty">No changes needed.</div>{% endfor %}
+</div>
+{% if plan.blocked_hosts %}<p class="muted">Not in the plan because of blockers: {% for b in plan.blocked_hosts %}{{ b.host }}{{ ", " if not loop.last }}{% endfor %}.</p>{% endif %}
+
+<h2 id="switches">Switches</h2>
+<div class="panel">
+<table>
+  <thead><tr><th>Switch</th>{% if sites|length > 1 %}<th>Site</th>{% endif %}<th>Role</th><th>Model / version</th><th class="num">Uptime</th><th>Mode</th><th class="num">VLANs</th><th class="num">Blocked</th><th class="num">Edge ports OK</th><th class="num">Err-dis</th><th class="num">Findings</th><th class="num">Changes</th></tr></thead>
+  <tbody>
+  {% for s in switches %}
+  <tr><td><strong>{{ s.host }}</strong><div class="muted mono">{{ s.ip }}</div></td>{% if sites|length > 1 %}<td>{{ s.site }}</td>{% endif %}
+    <td>{{ s.role }}</td><td>{% if s.reachable %}{{ s.model }}<div class="muted">{{ s.version }}</div>{% else %}<span class="pill bad">unreachable</span>{% endif %}</td>
+    <td class="num">{{ s.uptime | duration }}</td><td>{{ s.mode }}</td><td class="num">{{ s.vlans }}</td><td class="num">{{ s.blocked }}</td>
+    <td class="num">{% if s.edge_total %}{% if s.edge_ok == s.edge_total %}<span class="pill ok">{{ s.edge_ok }}/{{ s.edge_total }}</span>{% else %}<span class="pill warn">{{ s.edge_ok }}/{{ s.edge_total }}</span>{% endif %}{% else %}—{% endif %}</td>
+    <td class="num">{{ s.errdisabled or "" }}</td>
+    <td class="num">{% if s.findings %}<span class="badge sev-{{ s.worst }}">{{ s.findings }}</span>{% endif %}</td><td class="num">{{ s.changes or "" }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+{% if errors %}
+<h2>Collection errors</h2>
+<div class="panel">
+{% for host, errs in errors.items() %}<details><summary>{{ host }} — {{ errs|length }} command(s)</summary><div class="body"><pre>{% for c, e in errs.items() %}{{ c }}: {{ e }}
+{% endfor %}</pre></div></details>{% endfor %}
+</div>
+{% endif %}
+
+<footer>switch-mgmt netaudit · raw outputs in <code>raw/</code>, per-switch config in <code>plan/</code>, machine-readable results in <code>findings.json</code> / <code>plan.json</code>.</footer>
+</main>
+<script>
+(function () {
+  var buttons = document.querySelectorAll(".filters button");
+  buttons.forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      buttons.forEach(function (b) { b.setAttribute("aria-pressed", b === btn ? "true" : "false"); });
+      var want = btn.getAttribute("data-filter");
+      document.querySelectorAll("#finding-list .finding").forEach(function (row) {
+        row.style.display = (want === "all" || row.getAttribute("data-sev") === want) ? "" : "none";
+      });
+    });
+  });
+  document.querySelectorAll("button.copy").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var pre = btn.parentElement.nextElementSibling;
+      if (!pre || !navigator.clipboard) return;
+      navigator.clipboard.writeText(pre.textContent).then(function () {
+        btn.textContent = "Copied"; setTimeout(function () { btn.textContent = "Copy"; }, 1500);
+      }).catch(function () {});
+    });
+  });
+})();
+</script>
+</body>
+</html>

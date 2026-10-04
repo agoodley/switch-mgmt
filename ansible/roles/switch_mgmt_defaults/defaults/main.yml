@@ -1,0 +1,145 @@
+---
+# Defaults for every playbook (role defaults = lowest precedence, so anything
+# in the inventory wins).  Do not edit here: override them in
+# ansible/inventory/group_vars/switches.yml (all sites), in a site file
+# (ansible/inventory/sites/<site>.yml under `vars:`) or in
+# ansible/inventory/host_vars/<switch>.yml.
+
+# --- paths (inside the toolbox container the repo is mounted at /work) -------
+switch_mgmt_root: "{{ playbook_dir | dirname | dirname }}"
+reports_root: "{{ switch_mgmt_root }}/reports"
+backups_root: "{{ switch_mgmt_root }}/backups"
+oxidized_dir: "{{ switch_mgmt_root }}/oxidized"
+
+site: default
+
+# --- spanning-tree policy ------------------------------------------------------
+# Role of the switch in the spanning tree: root_primary | root_secondary | access
+stp_role: access
+# Mode every switch should run: rapid-pvst | pvst ('' = do not manage)
+stp_mode: rapid-pvst
+# VLANs the priority commands cover
+stp_vlans: "1-4094"
+# Bridge priorities by role (0-61440, steps of 4096).  stp_priority on a host wins.
+stp_priority_root_primary: 4096
+stp_priority_root_secondary: 8192
+# Priority for every other switch ('' = leave alone).  61440 makes sure an
+# access switch can never win the election, even if both cores are down.
+stp_priority_other: ""
+# Edge (host-facing) ports: only explicit `switchport mode access` ports.
+stp_edge_portfast: true
+stp_edge_bpduguard: true
+# Use "spanning-tree portfast edge" if your platform needs the edge keyword.
+stp_portfast_command: spanning-tree portfast
+stp_portfast_trunk_command: spanning-tree portfast trunk
+# Never put BPDU Guard on a port that has received BPDUs (it would shut down).
+stp_edge_skip_bpdu_seen: true
+# Ports to leave alone, e.g. ["Gi1/0/24"] in host_vars
+stp_edge_exclude: []
+# Trunks to servers/hypervisors that should be edge ports (portfast trunk)
+stp_edge_trunks: []
+stp_errdisable_recovery: true
+stp_errdisable_recovery_interval: 300
+stp_loopguard_default: false
+# Root Guard on the root bridges' ports facing access switches
+stp_rootguard_downlinks: false
+# long | short ('' = leave alone)
+stp_pathcost_method: ""
+
+# --- audit thresholds ---------------------------------------------------------------
+audit_tc_warn_per_day: 24
+audit_tc_high_per_day: 240
+audit_tc_recent_seconds: 600
+audit_flap_transitions: 100
+audit_max_pvst_instances: 128
+
+# Commands the audit collects (keep in sync with netaudit.parsers.AUDIT_COMMANDS).
+audit_commands:
+  - show version
+  - show running-config
+  - show spanning-tree summary
+  - show spanning-tree
+  - show spanning-tree detail
+  - show spanning-tree mst configuration
+  - show interfaces status
+  - show interfaces status err-disabled
+  - show interfaces trunk
+  - show etherchannel summary
+  - show cdp neighbors detail
+  - show lldp neighbors detail
+  - show vlan brief
+  - show logging | include SPANTREE|MACFLAP|ERR_DISABLE|NATIVE_VLAN|DUPLEX_MISMATCH|LINK-3-UPDOWN|LOOP_BACK|STORM
+
+# Variables handed to the analyser for each switch.
+netaudit_intent_keys:
+  - site
+  - ansible_host
+  - stp_role
+  - stp_mode
+  - stp_vlans
+  - stp_priority
+  - stp_priority_root_primary
+  - stp_priority_root_secondary
+  - stp_priority_other
+  - stp_edge_portfast
+  - stp_edge_bpduguard
+  - stp_portfast_command
+  - stp_portfast_trunk_command
+  - stp_edge_skip_bpdu_seen
+  - stp_edge_exclude
+  - stp_edge_trunks
+  - stp_errdisable_recovery
+  - stp_errdisable_recovery_interval
+  - stp_loopguard_default
+  - stp_rootguard_downlinks
+  - stp_pathcost_method
+  - audit_tc_warn_per_day
+  - audit_tc_high_per_day
+  - audit_tc_recent_seconds
+  - audit_flap_transitions
+  - audit_max_pvst_instances
+
+# --- rollout behaviour (stp_remediate.yml / deploy_snippet.yml) --------------------
+# Batch sizes: one canary, then the root bridges, then five at a time.
+apply_batches: [1, 1, 1, 5]
+# Ask before each next batch when running interactively.
+confirm_batches: true
+# Seconds to wait after changes that make spanning tree recalculate.
+stp_converge_seconds: 20
+# Push the rollback commands automatically if the post-checks fail.
+stp_auto_rollback: false
+
+# --- monitoring baseline (monitoring_baseline.yml) ----------------------------------
+# IP address the switches use to reach the Docker host (syslog, traps).
+monitoring_host: "{{ lookup('ansible.builtin.env', 'MONITORING_HOST') }}"
+snmp_version: "{{ lookup('ansible.builtin.env', 'SNMP_VERSION') | default('v2c', true) }}"  # v2c | v3
+snmp_community: "{{ lookup('ansible.builtin.env', 'SNMP_COMMUNITY') }}"
+snmp_community_acl: ""  # optional standard ACL name/number restricting SNMP
+snmp_v3_user: "{{ lookup('ansible.builtin.env', 'SNMP_V3_USER') | default('librenms', true) }}"
+snmp_v3_group: LIBRENMS
+snmp_v3_auth_pass: "{{ lookup('ansible.builtin.env', 'SNMP_V3_AUTH_PASS') }}"
+snmp_v3_priv_pass: "{{ lookup('ansible.builtin.env', 'SNMP_V3_PRIV_PASS') }}"
+snmp_location: ""
+snmp_contact: ""
+syslog_level: informational
+logging_buffer_size: 64000
+logging_source_interface: ""  # e.g. Vlan99
+snmp_trap_source: ""  # e.g. Vlan99
+ntp_servers: []
+monitoring_trap_lines:
+  - snmp-server enable traps snmp linkdown linkup coldstart warmstart
+  - snmp-server enable traps bridge newroot topologychange
+  - snmp-server enable traps stpx inconsistency root-inconsistency loop-inconsistency
+  - snmp-server enable traps config
+# Anything else you want everywhere, as plain IOS lines.
+monitoring_extra_lines: []
+
+# --- LibreNMS / Oxidized integration -------------------------------------------------
+librenms_url: "{{ lookup('ansible.builtin.env', 'LIBRENMS_URL') | default('http://librenms:8000', true) }}"
+librenms_api_token: "{{ lookup('ansible.builtin.env', 'LIBRENMS_API_TOKEN') }}"
+librenms_force_add: false
+librenms_location: "{{ site }}"
+librenms_alert_rules: true
+oxidized_url: "{{ lookup('ansible.builtin.env', 'OXIDIZED_URL') | default('http://oxidized:8888', true) }}"
+oxidized_model: ios
+oxidized_enabled: true

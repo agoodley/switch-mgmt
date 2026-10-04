@@ -1,0 +1,28 @@
+# LibreNMS settings seeded into the database the first time the stack starts.
+# After that they are ordinary settings: change them in the web UI (Global
+# Settings) or with `docker compose exec librenms lnms config:set ...`.
+# To force these values again: REAPPLY_YAML_CONFIG=1 lnms db:seed
+
+# Receive syslog from the switches (syslogng sidecar, UDP/TCP 514).
+enable_syslog: true
+syslog_purge: 90
+
+# Show Oxidized backups and diffs on each device's "Config" tab.
+oxidized.enabled: true
+oxidized.url: http://oxidized:8888
+oxidized.features.versioning: true
+
+# A %SYS-5-CONFIG_I syslog message ("Configured from ... by ...") makes
+# Oxidized back the switch up straight away instead of at the next interval.
+enable_syslog_hooks: true
+os.ios.syslog_hook:
+  - regex: /%SYS-(SW[0-9]+-)?5-CONFIG_I/
+    script: /opt/librenms/scripts/syslog-notify-oxidized.php
+os.iosxe.syslog_hook:
+  - regex: /%SYS-(SW[0-9]+-)?5-CONFIG_I/
+    script: /opt/librenms/scripts/syslog-notify-oxidized.php
+
+# Discovery keeps the CDP/LLDP neighbour table (network map) and the STP module on.
+discovery_modules.discovery-protocols: true
+discovery_modules.stp: true
+poller_modules.stp: true

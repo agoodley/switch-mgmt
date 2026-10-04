@@ -1,0 +1,58 @@
+---
+# Generate Oxidized's device list (oxidized/router.json) from the Ansible
+# inventory and ask Oxidized to reload it.  Node names are the inventory
+# names, so they match LibreNMS and the LibreNMS "Config" tab works.
+#
+#   make sync-oxidized
+#
+# The file always lists every switch in the inventory, even with --limit.
+# Credentials are NOT written here: the Oxidized container reads them from
+# .env when it starts (oxidized/config.erb).
+
+- name: Write router.json and reload Oxidized
+  hosts: switches
+  gather_facts: false
+  roles:
+    - switch_mgmt_defaults
+  tasks:
+    # Oxidized only uses `ip` when it is a literal address; a DNS name would be
+    # ignored in favour of the node name, so resolve names here.
+    - name: Resolve management addresses
+      ansible.builtin.set_fact:
+        oxidized_ips: "{{ oxidized_ips | default({}) | combine({item: oxidized_addr}) }}"
+      loop: "{{ groups['switches'] | default([]) }}"
+      vars:
+        oxidized_name: "{{ hostvars[item].ansible_host | default(item) }}"
+        oxidized_addr: >-
+          {{ oxidized_name if oxidized_name is match('^[0-9.]+$|.*:') else
+             (lookup('ansible.builtin.pipe', 'getent ahostsv4 ' ~ (oxidized_name | quote) ~ " | head -n 1 | cut -d ' ' -f 1")
+              | default(oxidized_name, true)) }}
+      run_once: true
+      delegate_to: localhost
+
+    - name: Write oxidized/router.json
+      ansible.builtin.template:
+        src: oxidized-router.json.j2
+        dest: "{{ oxidized_dir }}/router.json"
+        mode: "0644"
+      register: oxidized_file
+      run_once: true
+      delegate_to: localhost
+
+    - name: Ask Oxidized to reload its node list
+      ansible.builtin.uri:
+        url: "{{ oxidized_url }}/reload?format=json"
+        status_code: [200]
+      register: oxidized_reload
+      failed_when: false
+      run_once: true
+      delegate_to: localhost
+      when: not ansible_check_mode
+
+    - name: Result
+      ansible.builtin.debug:
+        msg: >-
+          {{ groups['switches'] | length }} switch(es) in the inventory, written to {{ oxidized_dir }}/router.json.
+          {{ 'Oxidized reloaded.' if (oxidized_reload.status | default(0)) == 200 else
+             'Oxidized is not reachable right now - it reads the file when it starts.' }}
+      run_once: true

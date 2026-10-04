@@ -1,0 +1,9 @@
+Syslog logging: enabled (0 messages dropped, 3 messages rate-limited, 0 flushes, 0 overruns, xml disabled, filtering disabled)
+
+Log Buffer (16384 bytes):
+
+Oct  4 04:12:10.123: %SPANTREE-2-BLOCK_BPDUGUARD: Received BPDU on port Gi1/0/11 with BPDU Guard enabled. Disabling port.
+Oct  4 04:12:10.127: %PM-4-ERR_DISABLE: bpduguard error detected on Gi1/0/11, putting Gi1/0/11 in err-disable state
+*Mar  1 00:01:12.345: %SW_MATM-4-MACFLAP_NOTIF: Host 0050.56a1.2b3c in vlan 10 is flapping between port Gi1/0/11 and port Gi1/0/49
+000123: Oct  4 04:30:01.001 UTC: %SPANTREE-5-ROOTCHANGE: Root Changed for vlan 10: New Root Port is GigabitEthernet1/0/49. New Root Mac Address is 00a3.d1f4.1180
+Oct  4 04:31:22.950: %LINK-3-UPDOWN: Interface GigabitEthernet1/0/7, changed state to down
