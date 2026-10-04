@@ -1,0 +1,10 @@
+#!/bin/sh
+# Run a switch-mgmt command inside the toolbox container (hosted deployment):
+#
+#   docker exec -it <project>-toolbox-1 switch-mgmt audit SITE=hq
+#   docker exec -it <project>-toolbox-1 switch-mgmt            (lists the commands)
+#
+# It is `make` in /work with the same targets and variables as on a Docker
+# host.  Everything written (reports, backups, inventory) is owner-only.
+umask 077
+cd /work && exec make "$@"

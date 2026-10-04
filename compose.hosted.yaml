@@ -1,0 +1,329 @@
+# switch-mgmt deployed from a URL, with nothing checked out: for Docker
+# control panels (Hostinger's Docker Manager, Portainer, Dockge...) or simply
+#
+#   curl -O https://raw.githubusercontent.com/agoodley/switch-mgmt/main/compose.hosted.yaml
+#   docker compose -f compose.hosted.yaml up -d
+#
+# How it differs from compose.yaml (the checkout-based stack):
+#   * the toolbox image is pulled from GitHub Container Registry (CI builds
+#     it from this repository) instead of being built here;
+#   * all state lives in named Docker volumes instead of ./data;
+#   * the files the containers need from the repository (LibreNMS settings,
+#     Oxidized's start script, the playbooks, the lab) are inside the toolbox
+#     image; the one-shot `init` service copies them into the volumes;
+#   * the toolbox runs permanently, so switch commands are
+#       docker exec -it <project>-toolbox-1 switch-mgmt audit SITE=hq
+#     (`switch-mgmt` is `make` inside the container; on its own it lists the
+#     commands - the same ones as the README).
+#
+# Settings are the variables of .env.example, given to the stack as
+# environment variables (the panel's form, or a .env file next to this file):
+#   required  LIBRENMS_DB_PASSWORD
+#   usual     NET_USERNAME, NET_PASSWORD, SNMP_COMMUNITY, MONITORING_HOST, TZ
+#   later     LIBRENMS_API_TOKEN (from `lnms api:token-create`, see the README)
+#   optional  COMPOSE_PROFILES=lab    also run the six simulated switches
+#             COMPOSE_PROFILES=https  HTTPS for LibreNMS: set LIBRENMS_HTTPS_HOST,
+#                                     LIBRENMS_HTTPS_BIND=0.0.0.0, LIBRENMS_HTTP_BIND=127.0.0.1
+#             TOOLBOX_IMAGE           another image/tag than :latest
+#
+# On a public host, restrict port 8000 (plain HTTP) to your own addresses in
+# the provider's firewall, or use the https profile.  The switches must reach
+# this host on 514 and 162 (UDP), and it must reach them on 22 and 161:
+# normally through a VPN into each site.
+
+name: switch-mgmt
+
+x-toolbox-image: &toolbox-image ${TOOLBOX_IMAGE:-ghcr.io/agoodley/switch-mgmt-toolbox:latest}
+
+x-librenms-env: &librenms-env
+  TZ: ${TZ:-UTC}
+  PUID: ${PUID:-1000}
+  PGID: ${PGID:-1000}
+  DB_HOST: db
+  DB_NAME: librenms
+  DB_USER: librenms
+  DB_PASSWORD: ${LIBRENMS_DB_PASSWORD:?set LIBRENMS_DB_PASSWORD (any long random string)}
+  DB_TIMEOUT: "60"
+  MEMORY_LIMIT: 256M
+  MAX_INPUT_VARS: "1000"
+  UPLOAD_MAX_SIZE: 16M
+  OPCACHE_MEM_SIZE: "128"
+  REAL_IP_FROM: 0.0.0.0/32
+  REAL_IP_HEADER: X-Forwarded-For
+  LOG_IP_VAR: remote_addr
+  CACHE_DRIVER: redis
+  SESSION_DRIVER: redis
+  REDIS_HOST: redis
+  LIBRENMS_WEATHERMAP: "false"
+  LIBRENMS_WEATHERMAP_SCHEDULE: "*/5 * * * *"
+  LISTEN_IPV6: ${LIBRENMS_LISTEN_IPV6:-true}
+
+x-librenms: &librenms
+  image: librenms/librenms:${LIBRENMS_VERSION:-26.9.1.1}
+  cap_add: [NET_ADMIN, NET_RAW]
+  volumes:
+    # The init service puts librenms/config/*.yaml (settings seeded on first
+    # start) into this volume's config/ directory.
+    - librenms:/data
+  depends_on:
+    init:
+      condition: service_completed_successfully
+  restart: unless-stopped
+
+x-toolbox-env: &toolbox-env
+  TZ: ${TZ:-UTC}
+  NET_USERNAME: ${NET_USERNAME:-}
+  NET_PASSWORD: ${NET_PASSWORD:-}
+  NET_ENABLE_SECRET: ${NET_ENABLE_SECRET:-}
+  SNMP_VERSION: ${SNMP_VERSION:-v2c}
+  SNMP_COMMUNITY: ${SNMP_COMMUNITY:-}
+  SNMP_V3_USER: ${SNMP_V3_USER:-librenms}
+  SNMP_V3_AUTH_PASS: ${SNMP_V3_AUTH_PASS:-}
+  SNMP_V3_PRIV_PASS: ${SNMP_V3_PRIV_PASS:-}
+  MONITORING_HOST: ${MONITORING_HOST:-}
+  LIBRENMS_URL: http://librenms:8000
+  LIBRENMS_API_TOKEN: ${LIBRENMS_API_TOKEN:-}
+  OXIDIZED_URL: http://oxidized:8888
+  LAB_HOST: lab
+
+services:
+  # Copies the repository files the containers need from the toolbox image
+  # into the volumes and sets their ownership.  Runs at every `up`; see
+  # docker/toolbox/switch-mgmt-init.
+  init:
+    image: *toolbox-image
+    user: "0:0"
+    command: ["switch-mgmt-init"]
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+    volumes:
+      - librenms:/volumes/librenms
+      - oxidized-conf:/volumes/oxidized-conf
+      - oxidized-support:/volumes/oxidized-support
+      - ssh:/volumes/ssh
+      - inventory:/volumes/inventory
+      - reports:/volumes/reports
+      - backups:/volumes/backups
+      - lab:/volumes/lab
+    restart: "no"
+
+  db:
+    image: mariadb:10.11
+    command:
+      - mysqld
+      - --innodb-file-per-table=1
+      - --lower-case-table-names=0
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - db:/var/lib/mysql
+    environment:
+      TZ: ${TZ:-UTC}
+      MARIADB_RANDOM_ROOT_PASSWORD: "yes"
+      MARIADB_AUTO_UPGRADE: "1"
+      MYSQL_DATABASE: librenms
+      MYSQL_USER: librenms
+      MYSQL_PASSWORD: ${LIBRENMS_DB_PASSWORD:?set LIBRENMS_DB_PASSWORD (any long random string)}
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.2-alpine
+    environment:
+      TZ: ${TZ:-UTC}
+    restart: unless-stopped
+
+  librenms:
+    <<: *librenms
+    hostname: librenms
+    ports:
+      - "${LIBRENMS_HTTP_BIND:-0.0.0.0}:${LIBRENMS_HTTP_PORT:-8000}:8000"
+      # Used by the https profile (Caddy shares this container's network).
+      # Without it nothing listens here, and it stays on localhost.
+      - "${LIBRENMS_HTTPS_BIND:-127.0.0.1}:${LIBRENMS_HTTPS_PORT:-443}:443"
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      <<: *librenms-env
+
+  dispatcher:
+    <<: *librenms
+    hostname: librenms-dispatcher
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      librenms:
+        condition: service_started
+      redis:
+        condition: service_started
+    environment:
+      <<: *librenms-env
+      DISPATCHER_NODE_ID: dispatcher1
+      SIDECAR_DISPATCHER: "1"
+
+  syslogng:
+    <<: *librenms
+    hostname: librenms-syslogng
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      librenms:
+        condition: service_started
+      redis:
+        condition: service_started
+    ports:
+      - "${SYSLOG_BIND:-0.0.0.0}:514:514/udp"
+      - "${SYSLOG_BIND:-0.0.0.0}:514:514/tcp"
+    environment:
+      <<: *librenms-env
+      SIDECAR_SYSLOGNG: "1"
+
+  snmptrapd:
+    <<: *librenms
+    hostname: librenms-snmptrapd
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      librenms:
+        condition: service_started
+      redis:
+        condition: service_started
+    ports:
+      - "${SNMPTRAP_BIND:-0.0.0.0}:162:162/udp"
+      - "${SNMPTRAP_BIND:-0.0.0.0}:162:162/tcp"
+    environment:
+      <<: *librenms-env
+      SIDECAR_SNMPTRAPD: "1"
+
+  # Optional HTTPS front end for LibreNMS (COMPOSE_PROFILES=https).  Caddy
+  # shares the LibreNMS container's network, reaches it on 127.0.0.1 (which
+  # LibreNMS trusts, so it builds https:// links) and answers on the 443
+  # published above.  Certificate from Caddy's own CA: trust
+  # /data/caddy/pki/authorities/local/root.crt from the caddy volume once.
+  https:
+    image: caddy:${CADDY_VERSION:-2.10}
+    profiles: [https]
+    network_mode: service:librenms
+    depends_on: [librenms]
+    command:
+      - caddy
+      - reverse-proxy
+      - --from
+      - https://${LIBRENMS_HTTPS_HOST:-localhost}
+      - --to
+      - 127.0.0.1:8000
+      - --internal-certs
+    volumes:
+      - caddy:/data
+    environment:
+      TZ: ${TZ:-UTC}
+    restart: unless-stopped
+
+  oxidized:
+    image: oxidized/oxidized:${OXIDIZED_VERSION:-0.37.0}
+    hostname: oxidized
+    # Render the config from the environment, wait for router.json, then
+    # start as usual (docker/oxidized/start.sh, copied in by init).
+    entrypoint: ["/usr/bin/dumb-init", "--", "/opt/switch-mgmt/start.sh"]
+    command: ["runsvdir", "-P", "/etc/service"]
+    environment:
+      TZ: ${TZ:-UTC}
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      NET_USERNAME: ${NET_USERNAME:-}
+      NET_PASSWORD: ${NET_PASSWORD:-}
+      NET_ENABLE_SECRET: ${NET_ENABLE_SECRET:-}
+      OXIDIZED_INTERVAL: ${OXIDIZED_INTERVAL:-3600}
+    volumes:
+      - oxidized:/home/oxidized/.config/oxidized
+      - oxidized-conf:/etc/switch-mgmt:ro
+      - oxidized-support:/opt/switch-mgmt:ro
+      - ssh:/etc/switch-mgmt-ssh:ro
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    # No login on the web UI/API: localhost only.
+    ports:
+      - "${OXIDIZED_BIND:-127.0.0.1}:${OXIDIZED_PORT:-8888}:8888"
+    restart: unless-stopped
+
+  # Ansible + netaudit, kept running so that
+  #   docker exec -it <project>-toolbox-1 switch-mgmt <command>
+  # works at any time.  Inventory, reports and backups are volumes.
+  toolbox:
+    image: *toolbox-image
+    init: true
+    user: "${PUID:-1000}:${PGID:-1000}"
+    working_dir: /work
+    command: ["sleep", "infinity"]
+    environment: *toolbox-env
+    volumes:
+      - inventory:/work/ansible/inventory
+      - reports:/work/reports
+      - backups:/work/backups
+      - oxidized-conf:/work/oxidized
+      - ssh:/home/netops/.ssh
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Six simulated switches (COMPOSE_PROFILES=lab):
+  #   docker exec -it <project>-toolbox-1 switch-mgmt lab-audit
+  # Restart this container to reset the lab to its broken starting point.
+  lab:
+    image: *toolbox-image
+    profiles: [lab]
+    hostname: lab
+    init: true
+    user: "${PUID:-1000}:${PGID:-1000}"
+    command:
+      - netaudit
+      - lab
+      - serve
+      - --topology
+      - /work/lab/topology.yml
+      - --host-key
+      - /var/lib/switch-mgmt-lab/host_key
+    volumes:
+      - lab:/var/lib/switch-mgmt-lab
+    ports:
+      - "127.0.0.1:2201-2206:2201-2206"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import sys; t = open('/proc/net/tcp').read(); sys.exit(any(f':{p:04X} 00000000:0000 0A' not in t for p in range(2201, 2207)))"
+      interval: 5s
+      timeout: 5s
+      start_period: 30s
+      start_interval: 1s
+      retries: 3
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  db:                 # LibreNMS database
+  librenms:           # LibreNMS graphs, logs, settings
+  oxidized:           # Oxidized's git repository of configs
+  oxidized-conf:      # router.json: the device list with logins
+  oxidized-support:   # start.sh and config.erb from the image
+  ssh:                # the switches' SSH host keys
+  inventory:          # ansible/inventory: your switches, credentials.yml
+  reports:            # audit reports
+  backups:            # pre-change configuration backups
+  lab:                # the simulated switches' SSH host key
+  caddy:              # certificates of the https profile

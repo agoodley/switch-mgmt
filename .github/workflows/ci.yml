@@ -11,6 +11,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  TOOLBOX_IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/switch-mgmt-toolbox
+
 jobs:
   lint-test:
     name: Lint and unit tests
@@ -51,16 +54,17 @@ jobs:
         working-directory: ansible
         run: ansible-lint
 
-      - name: Compose file
+      - name: Compose files
         run: |
           cp .env.example .env
           docker compose --profile tools --profile lab config --quiet
+          COMPOSE_PROFILES=lab,https docker compose -f compose.hosted.yaml config --quiet
 
   lab-e2e:
     name: End-to-end against the simulated lab
     needs: lint-test
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     env:
       DC_RUN_FLAGS: -T
     steps:
@@ -85,17 +89,7 @@ jobs:
         run: make lab-audit
 
       - name: Check the result
-        run: |
-          python3 - <<'EOF'
-          import json
-          summary = json.load(open("reports/latest/summary.json"))
-          print(json.dumps(summary["roots"], indent=1))
-          assert summary["switches"] == 6 and not summary["unreachable"], summary
-          assert all(r["root"] == "core-01" and r["status"] == "ok" for r in summary["roots"]), summary["roots"]
-          assert set(summary["modes"]) == {"rapid-pvst"}, summary["modes"]
-          assert summary["plan"]["apply_order"] == [], summary["plan"]
-          print("Lab fixed: core-01 is root everywhere, all switches run rapid-pvst, nothing left to change.")
-          EOF
+        run: python3 .github/check-lab-result.py reports/latest/summary.json
 
       - name: Keep the reports
         if: always()
@@ -108,3 +102,87 @@ jobs:
       - name: Lab logs on failure
         if: failure()
         run: docker compose --profile lab logs lab
+
+      - name: Stop the checkout-based stack
+        if: always()
+        run: make down
+
+      # The URL-deployable stack (compose.hosted.yaml): nothing from the
+      # checkout except the compose file itself; the same cycle runs inside
+      # the permanently running toolbox container, with the image built above.
+      - name: Hosted stack - the same cycle inside the toolbox container
+        env:
+          TOOLBOX_IMAGE: switch-mgmt-toolbox:local
+          COMPOSE_PROFILES: lab
+          LIBRENMS_DB_PASSWORD: not-started-in-this-test
+        run: |
+          set -eu
+          hosted="docker compose -p switch-mgmt-hosted -f compose.hosted.yaml"
+          $hosted up -d toolbox lab
+          for _ in $(seq 1 45); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' switch-mgmt-hosted-lab-1)" = healthy ] && break
+            sleep 2
+          done
+          docker inspect -f '{{.State.Health.Status}}' switch-mgmt-hosted-lab-1
+          $hosted logs init
+          $hosted exec -T toolbox switch-mgmt lab-audit
+          $hosted exec -T toolbox switch-mgmt lab-plan
+          $hosted exec -T toolbox switch-mgmt lab-apply
+          $hosted exec -T toolbox switch-mgmt lab-audit
+          $hosted exec -T toolbox cat reports/latest/summary.json > hosted-summary.json
+          # commands that manage containers refuse to run inside the toolbox
+          if $hosted exec -T toolbox switch-mgmt up; then echo "make up should fail inside the toolbox"; exit 1; fi
+          # everything the toolbox wrote belongs to PUID and is owner-only
+          $hosted exec -T toolbox sh -c 'ls -ld reports reports/latest/ ansible/inventory /home/netops/.ssh/known_hosts oxidized/router.json'
+          python3 .github/check-lab-result.py hosted-summary.json
+
+      - name: Hosted stack logs on failure
+        if: failure()
+        run: docker compose -p switch-mgmt-hosted -f compose.hosted.yaml logs || true
+
+      - name: Remove the hosted stack
+        if: always()
+        run: docker compose -p switch-mgmt-hosted -f compose.hosted.yaml down -v || true
+
+  publish:
+    name: Publish the toolbox image
+    needs: lab-e2e
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Tags: the branch name, the commit (sha-<short>), a version for v* tags,
+      # and `latest` for main and the repository's default branch.
+      - name: Image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.TOOLBOX_IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable=${{ github.ref_name == 'main' || github.ref_name == github.event.repository.default_branch }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/toolbox/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

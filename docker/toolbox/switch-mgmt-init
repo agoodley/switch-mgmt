@@ -1,0 +1,47 @@
+#!/bin/sh
+# One-shot `init` service of the hosted deployment (compose.hosted.yaml).
+#
+# The other containers need a few files from the repository, which they would
+# normally bind-mount from a checkout.  Here they come from this image: this
+# script copies them into the named volumes and hands the volumes the toolbox
+# writes to over to PUID:PGID.  It runs at every `up` and never overwrites
+# what you changed: the inventory, router.json and known_hosts are seeded only
+# when missing.
+set -eu
+uid=${PUID:-1000}
+gid=${PGID:-1000}
+v=/volumes
+
+# LibreNMS settings, seeded into its database on first start.
+install -d "$v/librenms/config"
+cp /work/librenms/config/*.yaml "$v/librenms/config/"
+
+# Oxidized start script and config template (run as root inside its container).
+install -m 755 /work/docker/oxidized/start.sh "$v/oxidized-support/start.sh"
+install -m 644 /work/docker/oxidized/config.erb "$v/oxidized-support/config.erb"
+
+# Oxidized device list, written by `switch-mgmt sync`; holds logins.
+[ -f "$v/oxidized-conf/router.json" ] || echo '[]' > "$v/oxidized-conf/router.json"
+chown -R "$uid:$gid" "$v/oxidized-conf"
+chmod 700 "$v/oxidized-conf"
+chmod 600 "$v/oxidized-conf/router.json"
+
+# SSH host keys of the switches (trust on first use), read by Oxidized too.
+[ -f "$v/ssh/known_hosts" ] || : > "$v/ssh/known_hosts"
+chown -R "$uid:$gid" "$v/ssh"
+chmod 700 "$v/ssh"
+chmod 600 "$v/ssh/known_hosts"
+
+# The inventory: the samples from the image once, then whatever you put there.
+if [ -z "$(ls -A "$v/inventory")" ]; then
+  cp -a /work/ansible/inventory/. "$v/inventory/"
+fi
+chown -R "$uid:$gid" "$v/inventory"
+[ ! -f "$v/inventory/credentials.yml" ] || chmod 600 "$v/inventory/credentials.yml"
+
+# Reports, pre-change backups and the lab's SSH host key.
+for d in reports backups lab; do
+  chown "$uid:$gid" "$v/$d"
+  chmod 700 "$v/$d"
+done
+echo "switch-mgmt init: volumes ready, files owned by $uid:$gid"
