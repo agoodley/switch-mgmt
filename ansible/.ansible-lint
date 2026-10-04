@@ -1,0 +1,12 @@
+# ansible-lint settings (run from this directory: `ansible-lint`).
+profile: production
+offline: true
+
+skip_list:
+  # roles/switch_mgmt_defaults holds the inventory-facing settings
+  # (stp_role, snmp_community, ...); prefixing them with the role name would
+  # change the variables users set in the inventory.
+  - var-naming[no-role-prefix]
+  # run_once is used on purpose for controller-side steps; every play uses
+  # the default linear strategy, where it behaves as documented.
+  - run-once[task]

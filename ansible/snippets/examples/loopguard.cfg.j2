@@ -1,0 +1,5 @@
+{# Loop Guard on all point-to-point non-designated ports: if BPDUs stop
+   arriving (unidirectional link, overloaded CPU) the port goes
+   loop-inconsistent instead of forwarding.  Roll out after the root bridge
+   is pinned and every switch runs Rapid-PVST+. #}
+spanning-tree loopguard default

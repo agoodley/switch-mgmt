@@ -1,0 +1,5 @@
+
+Port      Name               Status       Reason               Err-disabled Vlans
+Gi1/0/15                     err-disabled bpduguard
+Fa0/15    Printer            err-disabled bpduguard
+Gi1/0/21  Old hub            err-disabled loopback

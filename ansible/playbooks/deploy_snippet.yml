@@ -1,0 +1,66 @@
+---
+# Push any IOS configuration snippet to many switches, safely.
+#
+#   make deploy SNIPPET=snippets/examples/udld-fiber-uplinks.cfg.j2 SITE=hq CHECK=1   (dry run)
+#   make deploy SNIPPET=snippets/examples/udld-fiber-uplinks.cfg.j2 SITE=hq           (apply)
+#
+# The snippet is a Jinja2 template written exactly as it appears in
+# `show running-config` (one-space indentation under parents), so only the
+# missing lines are sent.  Every switch is backed up first, the config is
+# saved only after it was applied without errors, and the rollout stops at
+# the first failure.  Batches: one switch, then 25 %, then the rest.
+
+- name: Deploy a configuration snippet
+  hosts: switches
+  gather_facts: false
+  serial: "{{ snippet_batches | default([1, '25%', '100%']) }}"
+  max_fail_percentage: 0
+  any_errors_fatal: true
+  roles:
+    - switch_mgmt_defaults
+  vars:
+    snippet_path: "{{ snippet if snippet is abs else (playbook_dir | dirname) ~ '/' ~ snippet }}"
+    snippet_run_id: "{{ lookup('ansible.builtin.pipe', 'date -u +%Y%m%d-%H%M%S') }}"
+  tasks:
+    - name: Check the snippet argument
+      ansible.builtin.assert:
+        that: snippet is defined and snippet | length > 0
+        fail_msg: "Pass -e snippet=snippets/<file> (path relative to the ansible/ directory)"
+        quiet: true
+      run_once: true
+
+    - name: Render the snippet for this switch
+      ansible.builtin.set_fact:
+        snippet_config: "{{ lookup('ansible.builtin.template', snippet_path) }}"
+
+    - name: Back up the running-config
+      cisco.ios.ios_config:
+        backup: true
+        backup_options:
+          dir_path: "{{ backups_root }}/{{ site }}"
+          filename: "{{ inventory_hostname }}-snippet-{{ snippet_run_id }}.cfg"
+      when: not ansible_check_mode
+
+    - name: Apply the snippet
+      cisco.ios.ios_config:
+        content: "{{ snippet_config }}"
+        match: line
+      register: snippet_result
+      when: snippet_config | trim | length > 0
+
+    - name: Commands {{ 'that would be sent' if ansible_check_mode else 'sent' }}
+      ansible.builtin.debug:
+        msg: "{{ snippet_result.updates }}"
+      when: snippet_result.updates | default([]) | length > 0
+
+    - name: Save the configuration
+      cisco.ios.ios_config:
+        save_when: modified
+      when: not ansible_check_mode
+
+    - name: Pause before the next batch
+      ansible.builtin.pause:
+        prompt: "Batch done ({{ ansible_play_batch | join(', ') }}). Press Enter to continue (Ctrl-C then A aborts)"
+      when:
+        - confirm_batches | bool
+        - not ansible_check_mode

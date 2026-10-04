@@ -1,0 +1,26 @@
+# secrets and runtime state
+.env
+ansible/inventory/credentials.yml
+ansible/inventory/credentials.yml.tmp
+# spreadsheets exported for `make credentials-import` (they hold passwords)
+/*.csv
+data/
+reports/
+backups/
+oxidized/router.json
+lab/.lab_host_key
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.venv/
+build/
+
+# editors
+.idea/
+.vscode/
+*.swp
+.DS_Store

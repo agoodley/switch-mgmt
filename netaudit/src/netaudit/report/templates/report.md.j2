@@ -1,0 +1,87 @@
+# {{ title }}
+
+Generated {{ generated_at }} · {{ total_switches }} switches{% if unreachable %} · **{{ unreachable|length }} unreachable** ({{ unreachable|join(", ") }}){% endif %}
+
+
+| Critical | High | Medium | Low | Info |
+|---:|---:|---:|---:|---:|
+| {{ counts.critical }} | {{ counts.high }} | {{ counts.medium }} | {{ counts.low }} | {{ counts.info }} |
+
+STP modes: {% for m, n in modes %}{{ m }} ×{{ n }}{{ ", " if not loop.last }}{% endfor %}
+
+
+## What to do
+
+{% for a in actions %}
+{{ loop.index }}. **{{ a.title }}** {{ "(in plan)" if a.planned else "(manual)" }} — {{ a.text }}
+{% else %}
+Nothing to do.
+{% endfor %}
+
+## Root bridges
+
+| {% if sites|length > 1 %}Site | {% endif %}VLANs | Root | Priority | Intended | Status |
+|{% if sites|length > 1 %}---|{% endif %}---|---|---:|---|---|
+{% for r in roots %}
+| {% if sites|length > 1 %}{{ r.site }} | {% endif %}{{ r.vlans }} | {{ r.root }} | {{ r.priority }}{{ " (default)" if r.default_priority }} | {{ r.expected or "-" }} | {{ r.status }} |
+{% endfor %}
+
+## Spanning trees
+
+{% for d in diagrams %}
+### {% if sites|length > 1 %}{{ d.site }} · {% endif %}VLAN {{ d.vlans }} (root {{ d.root }})
+
+```mermaid
+{{ d.mermaid }}
+```
+
+{% endfor %}
+## Topology changes
+
+| VLAN | Changes | Per day | Last | Starts at | Trail |
+|---|---:|---:|---:|---|---|
+{% for r in tc_rows %}
+| {{ r.vlan }} | {{ r.count }} | {{ "%.0f"|format(r.rate) if r.rate is not none else "?" }} | {{ r.last | duration }} | {{ r.origin }} ({{ r.kind }}) | {{ r.path }} |
+{% endfor %}
+
+## Findings
+
+{% for f in findings %}
+- **[{{ f.severity|upper }}]** {{ f.title }} — _{{ f.host or ("site " ~ f.site) }}_{% if f.planned %} (fixed by plan){% endif %}
+
+{% if f.detail %}  {{ f.detail }}
+{% endif %}
+{% if f.recommendation %}  → {{ f.recommendation }}
+{% endif %}
+{% endfor %}
+
+## Remediation plan
+
+{% for w in plan.warnings %}
+> ⚠ {{ w }}
+{% endfor %}
+{% for h in plan.hosts %}
+### {{ h.order }}. {{ h.host }} ({{ h.role }}) — {{ h.summary }}
+
+{% if h.config_safe %}
+```
+{{ h.config_safe }}```
+{% endif %}
+{% if h.config_disruptive %}
+Recalculates spanning tree:
+
+```
+{{ h.config_disruptive }}```
+{% endif %}
+{% for s in h.skipped %}
+- skipped `{{ s.port }}`: {{ s.reason }}
+{% endfor %}
+
+{% endfor %}
+## Switches
+
+| Switch | Role | Model | Version | Mode | VLANs | Blocked | Edge OK | Findings |
+|---|---|---|---|---|---:|---:|---:|---:|
+{% for s in switches %}
+| {{ s.host }} | {{ s.role }} | {{ s.model }} | {{ s.version }} | {{ s.mode }} | {{ s.vlans }} | {{ s.blocked }} | {{ s.edge_ok }}/{{ s.edge_total }} | {{ s.findings }} |
+{% endfor %}

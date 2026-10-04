@@ -1,0 +1,23 @@
+---
+# On-demand configuration backup (Oxidized keeps the versioned history; this
+# is the quick "snapshot everything now" button, e.g. before a change window).
+#
+#   make backup SITE=hq
+#
+# Writes backups/<site>/<switch>-<time>.cfg
+
+- name: Back up running-configs
+  hosts: switches
+  gather_facts: false
+  roles:
+    - switch_mgmt_defaults
+  vars:
+    backup_stamp: "{{ lookup('ansible.builtin.pipe', 'date -u +%Y%m%d-%H%M%S') }}"
+  tasks:
+    - name: Save the running-config
+      cisco.ios.ios_config:
+        backup: true
+        backup_options:
+          dir_path: "{{ backups_root }}/{{ site }}"
+          filename: "{{ inventory_hostname }}-{{ backup_stamp }}.cfg"
+      check_mode: false

@@ -1,0 +1,30 @@
+Cisco IOS Software, C2960X Software (C2960X-UNIVERSALK9-M), Version 15.2(7)E8, RELEASE SOFTWARE (fc3)
+Technical Support: http://www.cisco.com/techsupport
+Copyright (c) 1986-2023 by Cisco Systems, Inc.
+Compiled Tue 28-Feb-23 06:51 by mcpre
+
+ROM: Bootstrap program is C2960X boot loader
+BOOTLDR: C2960X Boot Loader (C2960X-HBOOT-M) Version 15.2(7r)E, RELEASE SOFTWARE (fc1)
+
+acc-03 uptime is 5 weeks, 6 days, 2 hours, 3 minutes
+System returned to ROM by power-on
+System image file is "flash:/c2960x-universalk9-mz.152-7.E8/c2960x-universalk9-mz.152-7.E8.bin"
+Last reload reason: power-on
+
+cisco WS-C2960X-48FPD-L (APM86XXX) processor (revision V07) with 524288K bytes of memory.
+Processor board ID FOC1234X5YZ
+Last reset from power-on
+1 Virtual Ethernet interface
+52 Gigabit Ethernet interfaces
+
+Base ethernet MAC Address       : 00:23:5E:11:03:00
+Motherboard assembly number     : 73-15998-08
+Model number                    : WS-C2960X-48FPD-L
+System serial number            : FOC1234X5YZ
+
+Switch Ports Model                     SW Version            SW Image                 
+------ ----- -----                     ----------            ----------               
+*    1 52    WS-C2960X-48FPD-L         15.2(7)E8             C2960X-UNIVERSALK9-M     
+
+
+Configuration register is 0xF

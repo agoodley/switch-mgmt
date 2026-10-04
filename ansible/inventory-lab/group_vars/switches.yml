@@ -1,0 +1,25 @@
+---
+# Connection settings for the simulated lab switches.
+ansible_host: "{{ lookup('ansible.builtin.env', 'LAB_HOST') | default('lab', true) }}"
+ansible_connection: ansible.netcommon.network_cli
+ansible_network_os: cisco.ios.ios
+# Default lab login; acc-04 has its own in ../credentials.yml (same mechanism
+# as the real inventory, where the defaults come from .env).
+ansible_user: labadmin
+ansible_password: labpass
+switch_enable_secret: labenable
+ansible_become: true
+ansible_become_method: ansible.netcommon.enable
+ansible_become_password: "{{ switch_enable_secret | default(ansible_password, true) }}"
+ansible_network_cli_ssh_type: paramiko
+ansible_paramiko_look_for_keys: false
+ansible_command_timeout: 60
+
+# The fake switches do not answer SNMP; register them in LibreNMS as ping-only.
+librenms_force_add: true
+monitoring_host: 127.0.0.1
+snmp_community: lab-community
+# Don't wait at the batch prompts in the lab.
+confirm_batches: false
+stp_converge_seconds: 2
+librenms_snmp_disable: true

@@ -1,0 +1,6 @@
+{# Bring err-disabled ports back automatically after the recovery interval
+   (default 300 s, which IOS does not show in the running-config; they are shut
+   again straight away if the cause is still there). #}
+errdisable recovery cause bpduguard
+errdisable recovery cause link-flap
+errdisable recovery cause udld

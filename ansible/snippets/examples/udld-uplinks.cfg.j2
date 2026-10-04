@@ -1,0 +1,8 @@
+{# UDLD aggressive on fibre uplinks: catches unidirectional links that STP
+   cannot see.  List the uplinks per switch in host_vars, e.g.
+     uplink_interfaces: [TenGigabitEthernet1/1/1, TenGigabitEthernet1/1/2]
+   Must be enabled on BOTH ends of each link. #}
+{% for interface in uplink_interfaces | default([]) %}
+interface {{ interface }}
+ udld port aggressive
+{% endfor %}

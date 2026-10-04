@@ -1,0 +1,17 @@
+Switch is in pvst mode
+Root bridge for: none
+EtherChannel misconfig guard is enabled
+Extended system ID           is enabled
+Portfast Default             is disabled
+PortFast BPDU Guard Default  is disabled
+Portfast BPDU Filter Default is disabled
+Loopguard Default            is disabled
+UplinkFast                   is enabled
+BackboneFast                 is disabled
+Configured Pathcost method used is short
+
+Name                   Blocking Listening Learning Forwarding STP Active
+---------------------- -------- --------- -------- ---------- ----------
+VLAN0001                     1         0        0         17         18
+---------------------- -------- --------- -------- ---------- ----------
+1 vlan                       1         0        0         17         18

@@ -1,0 +1,47 @@
+---
+# Run the audit commands on one switch and write everything the analyser
+# needs to <run dir>/raw/<switch>.json.  Read-only: nothing is changed.
+# Passwords, keys and SNMP communities are removed before anything is written.
+
+- name: Run audit commands
+  cisco.ios.ios_command:
+    commands: "{{ item }}"
+  loop: "{{ audit_commands }}"
+  loop_control:
+    label: "{{ item }}"
+  register: netaudit_raw
+  # One unsupported command (or an unreachable switch) must not stop the audit;
+  # failures are recorded in the payload instead.
+  failed_when: false
+  ignore_unreachable: true
+  check_mode: false
+
+- name: Write collected outputs
+  ansible.builtin.copy:
+    dest: "{{ audit_run_dir }}/raw/{{ inventory_hostname }}.json"
+    content: "{{ netaudit_payload | to_nice_json(indent=1) }}"
+    mode: "0600"
+  delegate_to: localhost
+  check_mode: false
+  vars:
+    netaudit_ok: "{{ netaudit_raw.results | selectattr('stdout', 'defined') | list }}"
+    netaudit_failed: "{{ netaudit_raw.results | rejectattr('stdout', 'defined') | list }}"
+    netaudit_values: "{{ query('ansible.builtin.vars', *netaudit_intent_keys, default='__undefined__') }}"
+    netaudit_payload:
+      host: "{{ inventory_hostname }}"
+      collected_at: "{{ now(utc=true).isoformat(timespec='seconds') }}Z"
+      unreachable: "{{ netaudit_ok | length == 0 }}"
+      intent: >-
+        {{ dict(netaudit_intent_keys | zip(netaudit_values))
+           | dict2items | rejectattr('value', 'equalto', '__undefined__') | items2dict }}
+      outputs: >-
+        {{ dict(netaudit_ok | map(attribute='item')
+                | zip(netaudit_ok | map(attribute='stdout') | map('first') | map('ios_remove_secrets'))) }}
+      errors: >-
+        {{ dict(netaudit_failed | map(attribute='item')
+                | zip(netaudit_failed | map(attribute='msg', default='no output'))) }}
+
+- name: Report switches that could not be audited
+  ansible.builtin.debug:
+    msg: "No output collected from {{ inventory_hostname }}: {{ (netaudit_raw.results | first).msg | default('unknown error') }}"
+  when: netaudit_raw.results | selectattr('stdout', 'defined') | list | length == 0

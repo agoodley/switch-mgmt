@@ -1,0 +1,23 @@
+{# One object per switch; read by Oxidized's jsonfile source (see docker/oxidized/config.erb).
+   The login is the switch's own (credentials.yml) or the .env default.  An
+   enable secret is only listed when it differs from the global one, because
+   Oxidized's local web API shows node variables. #}
+{% set ns = namespace(first=true) %}
+{% set global_enable = lookup('ansible.builtin.env', 'NET_ENABLE_SECRET') %}
+[
+{% for name in groups['switches'] | default([]) | sort %}
+{%   set hv = hostvars[name] %}
+{%   if hv.oxidized_enabled | default(true) | bool %}
+{%     set node = {'name': name,
+                   'ip': oxidized_ips[name] | default(hv.ansible_host | default(name)),
+                   'model': hv.oxidized_model | default('ios'),
+                   'group': hv.site | default('default'),
+                   'ssh_port': (hv.ansible_port | default(22)) | string} %}
+{%     set login = {'username': hv.ansible_user | default(''), 'password': hv.ansible_password | default('')} %}
+{%     set enable = hv.switch_enable_secret | default('') %}
+{%     if enable and enable != global_enable %}{% set login = login | combine({'enable': enable}) %}{% endif %}
+  {{ "" if ns.first else "," }}{{ node | combine(login | dict2items | selectattr('value') | items2dict) | to_json }}
+{%     set ns.first = false %}
+{%   endif %}
+{% endfor %}
+]

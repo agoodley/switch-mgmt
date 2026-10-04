@@ -1,0 +1,12 @@
+.git
+data
+reports
+backups
+.env
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/*.egg-info
+netaudit/build
+lab/.lab_host_key
+oxidized/router.json

@@ -1,0 +1,42 @@
+---
+# Runs at the start of every play (all playbooks list this role).
+#
+# SSH host keys, trust on first use: keys of switches never seen before are
+# recorded in ~/.ssh/known_hosts (data/ssh/known_hosts in the toolbox), which
+# Ansible and Oxidized then check.  A key that changed is reported and not
+# accepted, so Ansible refuses to log in to that switch.
+
+- name: Check the switches' SSH host keys
+  ansible.builtin.command:
+    argv: "{{ ['netaudit', 'known-hosts', '--file', switch_mgmt_known_hosts] + switch_mgmt_key_targets }}"
+  vars:
+    switch_mgmt_known_hosts: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/known_hosts"
+    switch_mgmt_key_targets: >-
+      {%- set targets = [] -%}
+      {%- for host in ansible_play_hosts_all -%}
+      {%-   set address = hostvars[host].ansible_host | default(host) -%}
+      {%-   set address = '[' ~ address ~ ']' if ':' in address else address -%}
+      {%-   set _ = targets.append(address ~ ':' ~ (hostvars[host].ansible_port | default(22))) -%}
+      {%- endfor -%}
+      {{ targets }}
+  register: switch_mgmt_keys
+  changed_when: switch_mgmt_keys.stdout is search('^added ', multiline=True)
+  failed_when: switch_mgmt_keys.rc not in [0, 3]
+  run_once: true
+  delegate_to: localhost
+  check_mode: false
+  when:
+    - switch_mgmt_check_host_keys | bool
+    # once per playbook run is enough (the role runs again via dependencies)
+    - switch_mgmt_keys is not defined
+
+- name: Switches whose SSH host key changed
+  ansible.builtin.debug:
+    msg: >-
+      {{ ['Ansible will not log in to these switches. If one was replaced, accept its new key with:
+      make forget-host HOST=<address> [PORT=<port>]']
+      + (switch_mgmt_keys.stdout_lines | select('match', '^changed ') | list) }}
+  run_once: true
+  when:
+    - switch_mgmt_check_host_keys | bool
+    - switch_mgmt_keys.rc | default(0) == 3

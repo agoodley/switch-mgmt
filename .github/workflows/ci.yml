@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-test:
+    name: Lint and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            ansible/requirements.txt
+            netaudit/pyproject.toml
+
+      - name: Install tools
+        run: |
+          pip install -r ansible/requirements.txt -e "netaudit[lab,discover,dev]" yamllint ansible-lint
+          ansible-galaxy collection install -r ansible/requirements.yml
+
+      - name: Ruff
+        run: |
+          (cd netaudit && ruff check src tests && ruff format --check src tests)
+          ruff check --config netaudit/pyproject.toml ansible
+          ruff format --check --config netaudit/pyproject.toml ansible
+
+      - name: Unit tests
+        working-directory: netaudit
+        run: pytest -q
+
+      - name: Ansible plugin tests
+        run: pytest -q -p no:cacheprovider ansible/tests
+
+      - name: yamllint
+        run: yamllint .
+
+      - name: ansible-lint
+        working-directory: ansible
+        run: ansible-lint
+
+      - name: Compose file
+        run: |
+          cp .env.example .env
+          docker compose --profile tools --profile lab config --quiet
+
+  lab-e2e:
+    name: End-to-end against the simulated lab
+    needs: lint-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DC_RUN_FLAGS: -T
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare .env and directories
+        run: make init
+
+      - name: Build the toolbox and start the lab
+        run: make lab-up
+
+      - name: Audit
+        run: make lab-audit
+
+      - name: Plan (dry run)
+        run: make lab-plan
+
+      - name: Apply
+        run: make lab-apply
+
+      - name: Audit again
+        run: make lab-audit
+
+      - name: Check the result
+        run: |
+          python3 - <<'EOF'
+          import json
+          summary = json.load(open("reports/latest/summary.json"))
+          print(json.dumps(summary["roots"], indent=1))
+          assert summary["switches"] == 6 and not summary["unreachable"], summary
+          assert all(r["root"] == "core-01" and r["status"] == "ok" for r in summary["roots"]), summary["roots"]
+          assert set(summary["modes"]) == {"rapid-pvst"}, summary["modes"]
+          assert summary["plan"]["apply_order"] == [], summary["plan"]
+          print("Lab fixed: core-01 is root everywhere, all switches run rapid-pvst, nothing left to change.")
+          EOF
+
+      - name: Keep the reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab-reports
+          path: reports/
+          if-no-files-found: ignore
+
+      - name: Lab logs on failure
+        if: failure()
+        run: docker compose --profile lab logs lab

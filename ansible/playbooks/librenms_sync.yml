@@ -1,0 +1,199 @@
+---
+# Register every inventory switch in LibreNMS (by its inventory name, polled
+# on ansible_host), keep one static device group per site, and create alert
+# rules for the syslog messages that matter for spanning tree.
+#
+#   make sync-librenms            (needs LIBRENMS_API_TOKEN in .env)
+#
+# Safe to re-run: existing devices, groups and rules are left alone.
+
+- name: Register switches in LibreNMS
+  hosts: switches
+  gather_facts: false
+  roles:
+    - switch_mgmt_defaults
+  vars:
+    librenms_headers:
+      Authorization: "Bearer {{ librenms_api_token }}"
+      Accept: application/json
+    librenms_sites: "{{ ansible_play_hosts | map('extract', hostvars, 'librenms_site') | unique | list }}"
+  tasks:
+    - name: Check the API token
+      ansible.builtin.assert:
+        that: librenms_api_token | length > 0
+        fail_msg: "Set LIBRENMS_API_TOKEN in .env (`make librenms-token` creates one)"
+        quiet: true
+      run_once: true
+
+    - name: Remember the site of each switch
+      ansible.builtin.set_fact:
+        librenms_site: "{{ site }}"
+
+    - name: Is the switch already in LibreNMS?
+      ansible.builtin.uri:
+        url: "{{ librenms_url }}/api/v0/devices/{{ inventory_hostname | urlencode }}"
+        headers: "{{ librenms_headers }}"
+        status_code: [200, 404]
+      register: librenms_existing
+      delegate_to: localhost
+      check_mode: false
+
+    - name: Add the switch
+      ansible.builtin.uri:
+        url: "{{ librenms_url }}/api/v0/devices"
+        method: POST
+        headers: "{{ librenms_headers }}"
+        body_format: json
+        body: "{{ librenms_device | combine(librenms_snmp) }}"
+        status_code: [200, 201]
+      vars:
+        librenms_device:
+          hostname: "{{ inventory_hostname }}"
+          overwrite_ip: "{{ ansible_host | default(inventory_hostname) }}"
+          force_add: "{{ librenms_force_add | bool }}"
+          snmp_disable: "{{ librenms_snmp_disable | default(false) | bool }}"
+        librenms_snmp: >-
+          {{ {'snmpver': 'v2c', 'community': snmp_community} if snmp_version == 'v2c' else
+             {'snmpver': 'v3', 'authlevel': 'authPriv', 'authname': snmp_v3_user, 'authpass': snmp_v3_auth_pass,
+              'authalgo': 'SHA', 'cryptopass': snmp_v3_priv_pass, 'cryptoalgo': 'AES'} }}
+      register: librenms_added
+      changed_when: true
+      ignore_errors: true
+      delegate_to: localhost
+      when: librenms_existing.status == 404
+
+    - name: Explain a failed add
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} was not added ({{ librenms_added.json.message | default(librenms_added.msg | default('')) }}).
+          LibreNMS checks ping and SNMP first: run `make monitoring` so the switch answers SNMP,
+          or set librenms_force_add: true.
+      when: librenms_added is failed
+
+    - name: List devices
+      ansible.builtin.uri:
+        url: "{{ librenms_url }}/api/v0/devices"
+        headers: "{{ librenms_headers }}"
+      register: librenms_devices
+      run_once: true
+      delegate_to: localhost
+      check_mode: false
+
+    - name: List device groups
+      ansible.builtin.uri:
+        url: "{{ librenms_url }}/api/v0/devicegroups"
+        headers: "{{ librenms_headers }}"
+        status_code: [200, 404]
+      register: librenms_groups
+      run_once: true
+      delegate_to: localhost
+      check_mode: false
+
+    - name: Read the members of existing site groups
+      ansible.builtin.uri:
+        url: "{{ librenms_url }}/api/v0/devicegroups/{{ ('site-' ~ item) | urlencode }}"
+        headers: "{{ librenms_headers }}"
+        status_code: [200, 404]
+      loop: "{{ librenms_sites }}"
+      register: librenms_members
+      run_once: true
+      delegate_to: localhost
+      check_mode: false
+
+    - name: Create or extend one device group per site
+      ansible.builtin.uri:
+        url: >-
+          {{ librenms_url }}/api/v0/devicegroups{{ ('/' ~ (('site-' ~ item.item) | urlencode) ~ '/devices')
+          if item.status == 200 else '' }}
+        method: POST
+        headers: "{{ librenms_headers }}"
+        body_format: json
+        body: >-
+          {{ {'devices': librenms_missing} if item.status == 200 else
+             {'name': 'site-' ~ item.item, 'type': 'static', 'desc': 'Switches of site ' ~ item.item ~ ' (switch-mgmt)',
+              'devices': librenms_ids} }}
+        status_code: [200, 201]
+      loop: "{{ librenms_members.results }}"
+      loop_control:
+        label: "site-{{ item.item }}"
+      vars:
+        librenms_site_hosts: >-
+          {{ ansible_play_hosts | map('extract', hostvars) | selectattr('librenms_site', 'equalto', item.item)
+             | map(attribute='inventory_hostname') | list }}
+        librenms_ids: >-
+          {{ librenms_devices.json.devices | selectattr('hostname', 'in', librenms_site_hosts)
+             | map(attribute='device_id') | map('int') | list }}
+        librenms_current: "{{ (item.json.devices | default([])) | map(attribute='device_id') | map('int') | list }}"
+        librenms_missing: "{{ librenms_ids | difference(librenms_current) }}"
+      run_once: true
+      delegate_to: localhost
+      when: (item.status == 404 and librenms_ids | length > 0) or (item.status == 200 and librenms_missing | length > 0)
+      changed_when: true
+
+    - name: List alert rules
+      ansible.builtin.uri:
+        url: "{{ librenms_url }}/api/v0/rules"
+        headers: "{{ librenms_headers }}"
+      register: librenms_rules
+      run_once: true
+      delegate_to: localhost
+      check_mode: false
+      when: librenms_alert_rules | bool
+
+    # Rules only raise alerts in the LibreNMS UI; to be notified, add a
+    # transport (Alerts -> Alert Transports) and an operation that uses it.
+    - name: Create spanning-tree alert rules
+      ansible.builtin.uri:
+        url: "{{ librenms_url }}/api/v0/rules"
+        method: POST
+        headers: "{{ librenms_headers }}"
+        body_format: json
+        body:
+          name: "{{ item.name }}"
+          devices: [-1]
+          severity: "{{ item.severity }}"
+          disabled: 0
+          invert: false
+          notes: "{{ item.notes }} (created by switch-mgmt)"
+          builder:
+            condition: AND
+            valid: true
+            rules:
+              - {id: syslog.timestamp, field: syslog.timestamp, type: datetime, input: text, operator: greater_or_equal,
+                 value: "`macros.past_5m`"}
+              - condition: OR
+                rules:
+                  - {id: syslog.program, field: syslog.program, type: string, input: text, operator: regex, value: "{{ item.regex }}"}
+                  - {id: syslog.msg, field: syslog.msg, type: string, input: text, operator: regex, value: "{{ item.regex }}"}
+        status_code: [200, 201]
+      loop: "{{ librenms_stp_rules }}"
+      loop_control:
+        label: "{{ item.name }}"
+      run_once: true
+      delegate_to: localhost
+      when:
+        - librenms_alert_rules | bool
+        - item.name not in (librenms_rules.json.rules | default([]) | map(attribute='name') | list)
+      changed_when: true
+      vars:
+        librenms_stp_rules:
+          - name: "STP: MAC address flapping (possible loop)"
+            regex: MACFLAP
+            severity: critical
+            notes: A MAC address moving between ports is the classic symptom of a bridging loop
+          - name: "STP: port blocked by BPDU/Root/Loop Guard"
+            regex: BLOCK_BPDUGUARD|ROOTGUARD_BLOCK|LOOPGUARD_BLOCK
+            severity: warning
+            notes: A protection feature shut or blocked a port
+          - name: "STP: inconsistency or instance limit"
+            regex: MAX_INSTANCE|RECV_PVID_ERR|CHNL_MISCFG|LOOP_BACK_DETECTED|TYPE_INCONSISTENT
+            severity: critical
+            notes: VLAN without spanning tree, native VLAN mismatch, EtherChannel misconfiguration or looped cable
+          - name: "STP: root bridge changed"
+            regex: ROOTCHANGE
+            severity: warning
+            notes: The root bridge should only move during planned changes
+          - name: "Port err-disabled"
+            regex: ERR_DISABLE
+            severity: warning
+            notes: A port was err-disabled (bpduguard, link-flap, psecure, udld, ...)

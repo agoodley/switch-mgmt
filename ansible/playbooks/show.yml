@@ -1,0 +1,77 @@
+---
+# Run one show command on many switches and keep the output.
+#
+#   make show CMD="show spanning-tree root" SITE=hq
+#   ansible-playbook playbooks/show.yml -e '{"cmd": "show interfaces status err-disabled"}' --limit hq
+#
+# Output is printed per switch and written to reports/show/<time>-<command>/
+# (one file per switch plus all.txt; passwords, keys and SNMP communities are
+# hidden in these files).
+
+- name: Run a show command
+  hosts: switches
+  gather_facts: false
+  roles:
+    - switch_mgmt_defaults
+  vars:
+    show_command: "{{ cmd | default(lookup('ansible.builtin.env', 'SHOW_CMD')) }}"
+  tasks:
+    - name: Check the command
+      ansible.builtin.assert:
+        that: show_command is match('^ *(sh|show|dir|more|ping|traceroute)( |$)')
+        fail_msg: "Pass CMD='show ...' (read-only commands only)"
+        quiet: true
+      run_once: true
+
+    - name: Pick the output directory
+      ansible.builtin.set_fact:
+        show_dir: >-
+          {{ reports_root }}/show/{{ lookup('ansible.builtin.pipe', 'date -u +%Y%m%d-%H%M%S') }}-{{
+          show_command | regex_replace('[^A-Za-z0-9]+', '_') | truncate(60, true, '') }}
+      run_once: true
+
+    - name: Create the output directory
+      ansible.builtin.file:
+        path: "{{ show_dir }}"
+        state: directory
+        mode: "0700"
+      run_once: true
+      delegate_to: localhost
+      check_mode: false
+
+    - name: Run the command
+      cisco.ios.ios_command:
+        commands: "{{ show_command }}"
+      register: show_result
+      check_mode: false
+
+    - name: Output
+      ansible.builtin.debug:
+        msg: "{{ show_result.stdout_lines[0] }}"
+      when: show_print | default(true) | bool
+
+    - name: Save the output
+      ansible.builtin.copy:
+        dest: "{{ show_dir }}/{{ inventory_hostname }}.txt"
+        content: "{{ show_result.stdout[0] | ios_remove_secrets }}\n"
+        mode: "0600"
+      delegate_to: localhost
+      check_mode: false
+
+    - name: Write all.txt
+      ansible.builtin.shell:
+        cmd: >-
+          for f in *.txt; do [ "$f" = all.txt ] && continue;
+          printf '===== %s =====\n' "${f%.txt}"; cat "$f"; echo; done > all.txt
+        chdir: "{{ show_dir }}"
+      run_once: true
+      delegate_to: localhost
+      changed_when: false
+      check_mode: false
+
+    - name: Where the output is
+      ansible.builtin.debug:
+        msg: >-
+          Saved to {{ show_dir | replace(switch_mgmt_root ~ '/', '') }}/ (all.txt has every
+          switch; passwords and keys are hidden in the files)
+      run_once: true

@@ -1,0 +1,36 @@
+# Optional HTTPS in front of LibreNMS (Caddy reverse proxy).  Turn it on in .env:
+#
+#   COMPOSE_FILE=compose.yaml:compose.https.yaml
+#   LIBRENMS_HTTPS_HOST=librenms.example.net   # name users type in the browser
+#   LIBRENMS_HTTP_BIND=127.0.0.1               # plain HTTP only from this host
+#
+# then `make up` and browse to https://librenms.example.net.  The certificate
+# comes from Caddy's own CA: trust data/caddy/caddy/pki/authorities/local/root.crt
+# in your browsers (or via group policy) once.
+#
+# Caddy shares the LibreNMS container's network, so it reaches LibreNMS on
+# 127.0.0.1 - an address LibreNMS trusts by default - and LibreNMS then builds
+# https:// links.
+
+services:
+  librenms:
+    ports:
+      - "${LIBRENMS_HTTPS_BIND:-0.0.0.0}:${LIBRENMS_HTTPS_PORT:-443}:443"
+
+  https:
+    image: caddy:${CADDY_VERSION:-2.10}
+    network_mode: service:librenms
+    depends_on: [librenms]
+    command:
+      - caddy
+      - reverse-proxy
+      - --from
+      - https://${LIBRENMS_HTTPS_HOST:?set LIBRENMS_HTTPS_HOST in .env}
+      - --to
+      - 127.0.0.1:8000
+      - --internal-certs
+    volumes:
+      - ./data/caddy:/data
+    environment:
+      TZ: ${TZ:-UTC}
+    restart: unless-stopped

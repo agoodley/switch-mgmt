@@ -1,0 +1,20 @@
+
+VLAN0001
+  Spanning tree enabled protocol ieee
+  Root ID    Priority    32769
+             Address     0019.e8a4.0100
+             Cost        23
+             Port        50 (GigabitEthernet0/2)
+             Hello Time   2 sec  Max Age 20 sec  Forward Delay 15 sec
+
+  Bridge ID  Priority    32769
+             Address     001b.d4ab.0400
+             Hello Time   2 sec  Max Age 20 sec  Forward Delay 15 sec
+             Aging Time 300
+
+Interface        Role Sts Cost      Prio.Nbr Type
+---------------- ---- --- --------- -------- --------------------------------
+Fa0/1            Desg FWD 19        128.1    P2p
+Gi0/1            Altn BLK 4         128.49   P2p
+Gi0/2            Root FWD 4         128.50   P2p
+

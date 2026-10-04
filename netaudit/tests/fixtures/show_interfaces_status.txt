@@ -1,0 +1,15 @@
+
+Port      Name               Status       Vlan       Duplex  Speed Type 
+Gi1/0/1   User port          connected    10         a-full a-1000 10/100/1000BaseTX
+Gi1/0/2   User port          notconnect   10           auto   auto 10/100/1000BaseTX
+Gi1/0/3   Phone + PC         connected    10         a-full  a-100 10/100/1000BaseTX
+Gi1/0/11  Desk switch - do not touch connected 10   a-full a-1000 10/100/1000BaseTX
+Gi1/0/15                     err-disabled 10           auto   auto 10/100/1000BaseTX
+Gi1/0/16  Spare              disabled     1            auto   auto 10/100/1000BaseTX
+Gi1/0/17  Cable test         notconnect: TD 10          auto   auto 10/100/1000BaseTX
+Gi1/0/18  Device 5           connected    pvlan prom   full   1000 10/100/1000BaseTX
+Gi1/0/20                     connected    routed     a-full a-1000 10/100/1000BaseTX
+Gi1/0/48  Uplink to acc-04   connected    trunk      a-full a-1000 10/100/1000BaseTX
+Gi1/0/49  Uplink to core-01  connected    trunk        full   1000 1000BaseSX SFP
+Gi1/0/52                     notconnect   1            full   1000 Not Present
+Po1       Core link          connected    trunk      a-full a-10G 

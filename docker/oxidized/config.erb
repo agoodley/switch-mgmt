@@ -1,0 +1,67 @@
+---
+# Rendered into /home/oxidized/.config/oxidized/config by start.sh each time
+# the container starts.  The device list, with each switch's login, comes from
+# oxidized/router.json (written by `make sync-oxidized`); the login below from
+# .env is only the fallback.
+username: <%= ENV.fetch("NET_USERNAME", "").to_json %>
+password: <%= ENV.fetch("NET_PASSWORD", "").to_json %>
+model: ios
+resolve_dns: false
+interval: <%= Integer(ENV.fetch("OXIDIZED_INTERVAL", "3600")) %>
+threads: 10
+use_max_threads: false
+timeout: 30
+timelimit: 300
+retries: 2
+# LibreNMS asks for an immediate backup when a switch logs %SYS-5-CONFIG_I.
+next_adds_job: true
+pid: /home/oxidized/.config/oxidized/pid
+crash:
+  directory: /home/oxidized/.config/oxidized/crashes
+  hostnames: false
+vars:
+  remove_secret: true
+<% unless ENV.fetch("NET_ENABLE_SECRET", "").empty? -%>
+  # Only set when the account lands in user EXEC mode; Oxidized waits for a
+  # password prompt after `enable`, which never comes at privilege 15.
+  enable: <%= ENV["NET_ENABLE_SECRET"].to_json %>
+<% end -%>
+groups: {}
+extensions:
+  oxidized-web:
+    load: true
+    listen: 0.0.0.0
+    port: 8888
+input:
+  default: ssh
+  debug: false
+  ssh:
+    # Host keys must match data/ssh/known_hosts (recorded by `make sync`).
+    secure: true
+output:
+  default: git
+  git:
+    user: Oxidized
+    email: oxidized@switch-mgmt.local
+    single_repo: true
+    repo: /home/oxidized/.config/oxidized/configs.git
+source:
+  default: jsonfile
+  jsonfile:
+    file: /etc/switch-mgmt/router.json
+    map:
+      name: name
+      ip: ip
+      model: model
+      group: group
+      username: username
+      password: password
+    vars_map:
+      ssh_port: ssh_port
+      enable: enable
+model_map:
+  cisco: ios
+logger:
+  appenders:
+    - type: stdout
+      level: :info
