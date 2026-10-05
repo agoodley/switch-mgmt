@@ -58,10 +58,14 @@ x-librenms-env: &librenms-env
   UPLOAD_MAX_SIZE: 16M
   OPCACHE_MEM_SIZE: "128"
   # Caddy (the https service) shares this container's network and proxies
-  # from 127.0.0.1: take the real client address and the https scheme from it.
-  REAL_IP_FROM: 127.0.0.1/32
+  # from 127.0.0.1.  LibreNMS trusts that address for the X-Forwarded-* headers
+  # (the browser's address, and the https scheme for the links it builds).
+  # nginx must therefore leave the client address alone: with REAL_IP_FROM set
+  # to 127.0.0.1 it would substitute the browser's address first, LibreNMS
+  # would no longer recognise the proxy, and every link would be http://.
+  REAL_IP_FROM: 0.0.0.0/32
   REAL_IP_HEADER: X-Forwarded-For
-  LOG_IP_VAR: remote_addr
+  LOG_IP_VAR: http_x_forwarded_for
   APP_TRUSTED_PROXIES: 127.0.0.1
   CACHE_DRIVER: redis
   SESSION_DRIVER: redis

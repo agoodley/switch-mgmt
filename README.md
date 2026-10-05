@@ -709,6 +709,15 @@ If that works on the host but not from your PC, the firewall (the panel's and
 the VPS's own) must allow TCP `<port>`, and the URL must start with `https://`
 and include `:<port>` when it is not 443.
 
+**HTTPS loads, but LibreNMS redirects to `http://...` (the browser then shows
+"client sent an HTTP request to an HTTPS server" or a blank page).** LibreNMS
+did not recognise the proxy and built plain-HTTP links. That happens with the
+`compose.hosted.yaml` versions before October 2026, which also told nginx to
+replace the client address (`REAL_IP_FROM: 127.0.0.1/32`): redeploy with the
+current file. In your own setup, keep `REAL_IP_FROM` at the default
+`0.0.0.0/32` and let `APP_TRUSTED_PROXIES` (default `127.0.0.1`) handle the
+forwarded headers.
+
 **Hosted deployment: `pull access denied` / `denied` for `ghcr.io/agoodley/switch-mgmt-toolbox`.**
 The package is private. Make it public once on GitHub (*Packages* →
 `switch-mgmt-toolbox` → *Package settings* → *Change visibility*), or
