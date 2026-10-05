@@ -136,7 +136,7 @@ passed; until then use a `sha-<commit>` tag through `TOOLBOX_IMAGE`.
    | `NET_USERNAME`, `NET_PASSWORD`, `NET_ENABLE_SECRET` | Default switch login |
    | `SNMP_COMMUNITY` (or `SNMP_VERSION=v3` and `SNMP_V3_*`) | SNMP for LibreNMS |
    | `MONITORING_HOST` | This host's address as the switches see it |
-   | `LIBRENMS_HTTPS_HOST` | Required. The name or IP you will browse to (`203.0.113.5`, `librenms.example.net`; several: comma-separated). The certificate is issued for it |
+   | `LIBRENMS_HTTPS_HOST` | Required. The name or IP you will browse to (`203.0.113.5`, `librenms.example.net`; several: comma-separated). The certificate is issued for them; browsing by another name shows a message telling you to add it |
    | `LIBRENMS_HTTPS_PORT` | `443` by default; e.g. `8443` if the host already uses 443 |
    | `TZ` | Time zone |
    | `COMPOSE_PROFILES` | Optional: `lab` for the simulated switches |
@@ -545,7 +545,7 @@ LibreNMS serves plain HTTP on port 8000. To put HTTPS in front of it, set in `.e
 
 ```bash
 COMPOSE_FILE=compose.yaml:compose.https.yaml
-LIBRENMS_HTTPS_HOST=librenms.example.net   # the name users browse to
+LIBRENMS_HTTPS_HOST=librenms.example.net   # the name or IP users browse to (several: comma-separated)
 LIBRENMS_HTTP_BIND=127.0.0.1               # plain HTTP from this host only
 ```
 
@@ -687,6 +687,27 @@ Something on the host already uses that port. Pick another one in the stack's
 environment: `LIBRENMS_HTTP_PORT` for 8000, `SYSLOG_BIND` / `SNMPTRAP_BIND` to
 bind 514 and 162 to one address, `OXIDIZED_PORT` for 8888, `LIBRENMS_HTTPS_PORT`
 for 443 (for example `8443`; then browse to `https://<host>:8443`).
+
+**The HTTPS page does not load: the browser says the connection was reset, `ERR_SSL_PROTOCOL_ERROR`,
+or "can't provide a secure connection", and `docker logs switch-mgmt-https-1` shows
+`no certificate available`.** The address you typed is not in `LIBRENMS_HTTPS_HOST`,
+or the stack runs the first HTTPS version, which only answered browsers that
+sent the configured name (browsers send no name when they are given an IP
+address). Put every name and IP you browse to in `LIBRENMS_HTTPS_HOST`
+(comma-separated) and redeploy with the current `compose.hosted.yaml`; the
+current version also answers for the first entry when no name is sent, and
+shows a message instead of resetting the connection for names it does not know.
+Before that, check the basics on the host:
+
+```bash
+docker ps --format '{{.Names}}  {{.Status}}  {{.Ports}}'   # an https-1 container, librenms-1 publishing 0.0.0.0:<port>->443
+docker logs switch-mgmt-https-1 --tail 20
+curl -vk https://127.0.0.1:<port>/                          # from the host: a LibreNMS page or a redirect to /login
+```
+
+If that works on the host but not from your PC, the firewall (the panel's and
+the VPS's own) must allow TCP `<port>`, and the URL must start with `https://`
+and include `:<port>` when it is not 443.
 
 **Hosted deployment: `pull access denied` / `denied` for `ghcr.io/agoodley/switch-mgmt-toolbox`.**
 The package is private. Make it public once on GitHub (*Packages* →
