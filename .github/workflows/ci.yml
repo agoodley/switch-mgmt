@@ -60,6 +60,24 @@ jobs:
           docker compose --profile tools --profile lab config --quiet
           COMPOSE_PROFILES=lab LIBRENMS_HTTPS_HOST=ci.example docker compose -f compose.hosted.yaml config --quiet
 
+      # The Caddy front end builds its Caddyfile from LIBRENMS_HTTPS_HOST at
+      # start-up: generate it as the stack would (an IP and a name, a non-default
+      # port) and let Caddy validate it, for both compose files.
+      - name: HTTPS front end configuration
+        env:
+          LIBRENMS_HTTPS_HOST: 203.0.113.5, ci.example
+          LIBRENMS_HTTPS_PORT: "8444"
+        run: |
+          set -eu
+          for compose in compose.hosted.yaml "compose.yaml -f compose.https.yaml"; do
+            # shellcheck disable=SC2086
+            # `config` keeps the $$ escaping that the running stack interpolates to $
+            script=$(docker compose -f $compose config --format json | jq -r '.services.https.command[2]' | sed 's/\$\$/$/g')
+            docker run --rm -e LIBRENMS_HTTPS_HOST -e LIBRENMS_HTTPS_PORT caddy:2.10 \
+              sh -c "$(printf '%s' "$script" | sed 's/exec caddy run /caddy validate /'); cat /tmp/Caddyfile" \
+              | tee /dev/stderr | grep -q '^203.0.113.5, ci.example {'
+          done
+
   lab-e2e:
     name: End-to-end against the simulated lab
     needs: lint-test

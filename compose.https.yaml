@@ -1,7 +1,8 @@
 # Optional HTTPS in front of LibreNMS (Caddy reverse proxy).  Turn it on in .env:
 #
 #   COMPOSE_FILE=compose.yaml:compose.https.yaml
-#   LIBRENMS_HTTPS_HOST=librenms.example.net   # name users type in the browser
+#   LIBRENMS_HTTPS_HOST=librenms.example.net   # name or IP users type in the browser
+#                                              # (several: comma-separated)
 #   LIBRENMS_HTTP_BIND=127.0.0.1               # plain HTTP only from this host
 #
 # then `make up` and browse to https://librenms.example.net.  The certificate
@@ -22,15 +23,22 @@ services:
     network_mode: service:librenms
     depends_on: [librenms]
     command:
-      - caddy
-      - reverse-proxy
-      - --from
-      - https://${LIBRENMS_HTTPS_HOST:?set LIBRENMS_HTTPS_HOST in .env}
-      - --to
-      - 127.0.0.1:8000
-      - --internal-certs
+      - sh
+      - -c
+      - |
+        set -- $$(printf '%s' "$$LIBRENMS_HTTPS_HOST" | tr ',' ' ')
+        site=$$(printf '%s, ' "$$@" | sed 's/, $$//')
+        url="https://$$1"; [ "$${LIBRENMS_HTTPS_PORT:-443}" = 443 ] || url="$$url:$$LIBRENMS_HTTPS_PORT"
+        msg="LibreNMS is at $$url - to use the name or address you typed as well,"
+        msg="$$msg add it to LIBRENMS_HTTPS_HOST (comma-separated) and restart the https service."
+        printf '%s\n' '{' "  default_sni $$1" "  fallback_sni $$1" '}' \
+          "$$site {" '  tls internal' '  reverse_proxy 127.0.0.1:8000' '}' \
+          'https:// {' "  respond \"$$msg\" 421" '}' > /tmp/Caddyfile
+        exec caddy run --config /tmp/Caddyfile --adapter caddyfile
     volumes:
       - ./data/caddy:/data
     environment:
       TZ: ${TZ:-UTC}
+      LIBRENMS_HTTPS_HOST: ${LIBRENMS_HTTPS_HOST:?set LIBRENMS_HTTPS_HOST in .env to the name or IP users browse to}
+      LIBRENMS_HTTPS_PORT: ${LIBRENMS_HTTPS_PORT:-443}
     restart: unless-stopped
